@@ -722,6 +722,7 @@ export default function App() {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null); // 'synced' | 'error' | null
+  const [syncErrorMessage, setSyncErrorMessage] = useState('');
 
   // GX Cyber Theme State
   const [currentThemeKey, setCurrentThemeKey] = useState('crimson');
@@ -1423,12 +1424,14 @@ export default function App() {
       await set(userRef, payload);
 
       setSyncStatus('synced');
+      setSyncErrorMessage('');
       setTimeout(() => setSyncStatus(null), 3500);
       audioEngine.playUiSound('step');
     } catch (err) {
       console.error('Firebase Sync Upload Error:', err);
       setSyncStatus('error');
-      setTimeout(() => setSyncStatus(null), 4000);
+      setSyncErrorMessage(err?.message || 'Sync error');
+      setTimeout(() => setSyncStatus(null), 5000);
     } finally {
       setIsSyncing(false);
     }
@@ -6121,7 +6124,7 @@ export default function App() {
             )}
             {syncStatus === 'error' && (
               <div className="bg-[#EF4444]/15 border border-[#EF4444]/30 text-[#EF4444] px-3 py-2 rounded-xl text-xs font-mono font-bold text-center animate-in fade-in">
-                ✕ Sync error. Make sure Anonymous Sign-in is enabled in Firebase.
+                ✕ {syncErrorMessage || 'Sync error. Check Firebase configuration.'}
               </div>
             )}
 

@@ -18,17 +18,16 @@ const db = getDatabase(app);
 const auth = getAuth(app);
 
 // Authenticate anonymously so the security rule '.read: auth != null' permits access
-let authPromise = null;
 export const ensureAuth = async () => {
   if (auth.currentUser) return auth.currentUser;
-  if (!authPromise) {
-    authPromise = signInAnonymously(auth).catch(err => {
-      console.warn('Firebase anonymous auth notice:', err);
-      authPromise = null;
-      return null;
-    });
+  try {
+    const cred = await signInAnonymously(auth);
+    return cred.user;
+  } catch (err) {
+    console.warn('Firebase auth attempt error:', err);
+    // If user already authenticated or offline, return current user if any
+    return auth.currentUser || null;
   }
-  return authPromise;
 };
 
 // Immediately initiate auth
