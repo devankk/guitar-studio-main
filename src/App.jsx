@@ -187,7 +187,9 @@ class WebAudioEngine {
     this.timerId = null;
     this.scheduledEvents = [];
     this.onBeat = null;
+    this.onVisualNote = null;
     this.beatTimers = new Set();
+    this.activeSources = new Map();
     this.pauseTimeRemaining = null;
     this.runToken = 0;
   }
@@ -274,7 +276,7 @@ class WebAudioEngine {
       const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
       osc.type = type; osc.frequency.setValueAtTime(frequency, time);
       gain.gain.setValueAtTime(0.0001, time); gain.gain.linearRampToValueAtTime(gainValue * this.volume, time + 0.002); gain.gain.exponentialRampToValueAtTime(0.0001, time + decay);
-      osc.connect(gain); gain.connect(this.masterGain); osc.start(time); osc.stop(time + decay + 0.01);
+      osc.connect(gain); gain.connect(this.masterGain); this.activeSources.set(osc, time); osc.onended = () => this.activeSources.delete(osc); osc.start(time); osc.stop(time + decay + 0.01);
     };
     if (kick) hit(95, 'sine', 0.55, 0.16);
     if (snare) hit(190, 'triangle', 0.32, 0.09);
@@ -299,23 +301,13 @@ class WebAudioEngine {
       this.currentSubdivision = 0;
       this.currentBeat = (this.currentBeat + 1) % this.timeSignature.beats;
 
-      if (this.onBeat && this.audioCtx) {
-        const token = this.runToken;
-        const delay = Math.max(0, (this.nextNoteTime - this.audioCtx.currentTime) * 1000);
-        const timer = setTimeout(() => {
-          this.beatTimers.delete(timer);
-          if (this.isPlaying && token === this.runToken && this.onBeat) {
-            this.onBeat(this.currentBeat + 1, this.currentBeat === 0);
-          }
-        }, delay);
-        this.beatTimers.add(timer);
-      }
     }
   }
 
   scheduleNote(beatNumber, subdivisionIndex, time) {
     const isDownbeat = (beatNumber === 0 && subdivisionIndex === 0);
     const isBeatStart = (subdivisionIndex === 0);
+    const dotsPerBeat = this.subdivision.dotsPerBeat;
 
     this.scheduledEvents.push({
       time,
@@ -323,8 +315,53 @@ class WebAudioEngine {
       subdivisionIndex,
       isDownbeat,
       isBeatStart,
-      dotsPerBeat: this.subdivision.dotsPerBeat
+      dotsPerBeat
     });
+
+    // Notify React at the exact scheduled note time. Previously this callback
+    // lived in nextNote(), after the engine had already advanced to the next
+    // beat, which made count-ins transition one beat late and could replay the
+    // first training beat during speed/ratio restarts.
+    // Training phase logic advances once per quarter-note beat. Subdivision
+    // notes still enter scheduledEvents for the visualizer, but must not
+    // advance Speed/Ratios state multiple times within the same beat.
+    if (subdivisionIndex === 0 && this.onBeat && this.audioCtx) {
+      const token = this.runToken;
+      // Let the visual event for the same audio beat fire first. Without a
+      // tiny ordering margin, the final count-in beat could transition phase
+      // and clear its visual timer before the last dot was painted.
+      const delay = Math.max(0, (time - this.audioCtx.currentTime) * 1000) + 10;
+      const timer = setTimeout(() => {
+        this.beatTimers.delete(timer);
+        if (this.isPlaying && token === this.runToken && this.onBeat) {
+          this.onBeat(beatNumber + 1, isDownbeat, time);
+        }
+      }, delay);
+      this.beatTimers.add(timer);
+    }
+
+    if (this.onVisualNote && this.audioCtx) {
+      const token = this.runToken;
+      const delay = Math.max(0, (time - this.audioCtx.currentTime) * 1000);
+      const timer = setTimeout(() => {
+        // A phase transition can happen at the same audio timestamp and
+        // invalidate the run token before this browser timer gets CPU time.
+        // Still paint an event whose Web Audio timestamp has just occurred;
+        // suppress only genuinely future events from the old phase.
+        const audioNow = this.audioCtx?.currentTime || 0;
+        const eventIsCurrent = time <= audioNow + 0.04;
+        if (this.isPlaying && (token === this.runToken || eventIsCurrent) && this.onVisualNote) {
+          this.onVisualNote({
+            dotsPerBeat,
+            activeDotIndex: subdivisionIndex,
+            isDownbeat,
+            isBeatStart,
+            beatNumber: beatNumber + 1,
+            time
+          });
+        }
+      }, delay);
+    }
 
     if (this.scheduledEvents.length > 80) {
       this.scheduledEvents.shift();
@@ -352,6 +389,38 @@ class WebAudioEngine {
         freq = isDownbeat ? 420 : isBeatStart ? 310 : 220;
         osc.type = 'square';
         decay = 0.035;
+      } else if (this.soundType === 'clave') {
+        freq = isDownbeat ? 1850 : isBeatStart ? 1450 : 1180;
+        osc.type = 'triangle';
+        decay = 0.028;
+      } else if (this.soundType === 'softclick') {
+        freq = isDownbeat ? 980 : isBeatStart ? 760 : 620;
+        osc.type = 'sine';
+        decay = 0.022;
+      } else if (this.soundType === 'cowbell') {
+        freq = isDownbeat ? 620 : isBeatStart ? 540 : 470;
+        osc.type = 'square';
+        decay = 0.075;
+      } else if (this.soundType === 'tick') {
+        freq = isDownbeat ? 2400 : isBeatStart ? 2100 : 1800;
+        osc.type = 'triangle';
+        decay = 0.018;
+      } else if (this.soundType === 'digital') {
+        freq = isDownbeat ? 1320 : isBeatStart ? 990 : 660;
+        osc.type = 'square';
+        decay = 0.045;
+      } else if (this.soundType === 'snap') {
+        freq = isDownbeat ? 520 : isBeatStart ? 390 : 300;
+        osc.type = 'sawtooth';
+        decay = 0.025;
+      } else if (this.soundType === 'shaker') {
+        freq = isDownbeat ? 3200 : isBeatStart ? 2800 : 2400;
+        osc.type = 'square';
+        decay = 0.012;
+      } else if (this.soundType === 'handclap') {
+        freq = isDownbeat ? 760 : isBeatStart ? 620 : 500;
+        osc.type = 'triangle';
+        decay = 0.11;
       } else {
         // Mechanical click
         freq = isDownbeat ? 1400 : isBeatStart ? 850 : 520;
@@ -373,6 +442,8 @@ class WebAudioEngine {
         noteGain.connect(this.audioCtx.destination);
       }
 
+      this.activeSources.set(osc, time);
+      osc.onended = () => this.activeSources.delete(osc);
       osc.start(time);
       osc.stop(time + decay + 0.01);
     } catch {
@@ -387,7 +458,7 @@ class WebAudioEngine {
     }
   }
 
-  start() {
+  start(firstNoteDelay = 0.04) {
     this.initAudio();
     if (this.isPlaying) return;
     this.isPlaying = true;
@@ -398,7 +469,7 @@ class WebAudioEngine {
     } else {
       this.currentBeat = 0;
       this.currentSubdivision = 0;
-      this.nextNoteTime = this.audioCtx.currentTime + 0.04;
+      this.nextNoteTime = this.audioCtx.currentTime + Math.max(0.02, Number(firstNoteDelay) || 0.04);
     }
     this.scheduledEvents = [];
 
@@ -407,6 +478,32 @@ class WebAudioEngine {
         this.scheduler();
       }
     }, this.lookahead);
+  }
+
+  // Change training phase without creating a second scheduler. This keeps
+  // count-ins, BPM changes, and subdivision changes on one audio timeline.
+  switchPhase({ timeSignature, subdivision, bpm, firstNoteDelay = 0.04, anchorTime = null }) {
+    if (!this.audioCtx) return;
+    this.runToken++;
+    const transitionCutoff = this.audioCtx.currentTime + 0.012;
+    this.activeSources.forEach((startTime, source) => {
+      if (startTime >= transitionCutoff) { try { source.stop(); } catch {} this.activeSources.delete(source); }
+    });
+    this.activeSources.clear();
+    this.beatTimers.forEach(clearTimeout);
+    this.beatTimers.clear();
+    // Keep the currently audible event for the visualizer and discard only
+    // future events belonging to the old phase.
+    const now = this.audioCtx.currentTime;
+    this.scheduledEvents = this.scheduledEvents.filter(event => event.time <= now);
+    this.setTimeSignature(timeSignature);
+    this.setSubdivision(subdivision);
+    this.setBpm(bpm);
+    this.currentBeat = 0;
+    this.currentSubdivision = 0;
+    const phaseAnchor = Number.isFinite(anchorTime) ? anchorTime : this.audioCtx.currentTime;
+    this.nextNoteTime = Math.max(this.audioCtx.currentTime + 0.01, phaseAnchor + Math.max(0.02, Number(firstNoteDelay) || 0.04));
+    if (!this.isPlaying) this.start(firstNoteDelay);
   }
 
   pause() {
@@ -418,6 +515,8 @@ class WebAudioEngine {
     this.scheduledEvents = [];
     this.beatTimers.forEach(clearTimeout);
     this.beatTimers.clear();
+    this.activeSources.forEach((startTime, source) => { try { source.stop(); } catch {} });
+    this.activeSources.clear();
   }
 
   stop() {
@@ -433,6 +532,8 @@ class WebAudioEngine {
     this.scheduledEvents = [];
     this.currentBeat = 0;
     this.currentSubdivision = 0;
+    this.activeSources.forEach((startTime, source) => { try { source.stop(); } catch {} });
+    this.activeSources.clear();
   }
 }
 
@@ -628,6 +729,8 @@ export default function App() {
     isBeatStart: false,
     beatNumber: 1
   });
+  const visualizerEventTimeRef = useRef(0);
+  const transitionGuardRef = useRef('');
 
   // Step Accordion open states
   const [currentStepOpen, setCurrentStepOpen] = useState(1);
@@ -749,6 +852,7 @@ export default function App() {
   const [ratiosConfig, setRatiosConfig] = useState({
     bpm: 80,
     numberOfBeats: 4,
+    barsPerLoop: 4,
     initialCountIn: 4,
     repeatCountIn: 4,
     countInEnabled: true,
@@ -759,6 +863,7 @@ export default function App() {
 
   const [ratiosProgress, setRatiosProgress] = useState({
     activeLoop: 1,
+    currentBar: 1,
     currentSubdivision: SUBDIVISIONS[1],
     currentBeat: 1,
     countInRemaining: 4,
@@ -1576,7 +1681,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, bpm, selectedSubdivision, activeTab, currentStepOpen, practiceSession, activeMetronomeMode]);
+  }, [isPlaying, bpm, selectedSubdivision, activeTab, currentStepOpen, practiceSession, activeMetronomeMode, step1SubTab, step2SubTab, step3SubTab, speedConfig, ratiosConfig]);
 
   const stopAllMetronomes = () => {
     audioEngine.stop();
@@ -1591,6 +1696,15 @@ export default function App() {
 
   const startCurrentContextMetronome = () => {
     if (activeTab === 'daily') {
+      const stepMode = currentStepOpen === 1 ? step1SubTab : currentStepOpen === 2 ? step2SubTab : step3SubTab;
+      if (stepMode === 'speed') {
+        startSpeedTraining(currentStepOpen);
+        return;
+      }
+      if (stepMode === 'ratios') {
+        startRatiosTraining(currentStepOpen);
+        return;
+      }
       let targetBpm = practiceSession.step1.bpm;
       let targetSubdiv = practiceSession.step1.subdivision;
       if (currentStepOpen === 2) {
@@ -1601,7 +1715,7 @@ export default function App() {
         targetSubdiv = practiceSession.step3.subdivision;
       }
       audioEngine.setTimeSignature(timeSignature);
-      togglePlay(targetBpm, targetSubdiv);
+      togglePlay(targetBpm, targetSubdiv, currentStepOpen);
     } else {
       if (activeMetronomeMode === 'standard') {
         togglePlay(bpm, selectedSubdivision);
@@ -1636,7 +1750,17 @@ export default function App() {
     audioEngine.setSubdivision(SUBDIVISIONS[0]);
   };
 
+  const resetBeatVisualizer = () => setActiveDotInfo({
+    dotsPerBeat: 1,
+    activeDotIndex: -1,
+    isDownbeat: false,
+    isBeatStart: false,
+    beatNumber: 1
+  });
+
   const startSpeedTraining = (stepNumber = null) => {
+    transitionGuardRef.current = '';
+    resetBeatVisualizer();
     setActiveTrainingStep(stepNumber);
     setActiveTrainingMode('speed');
     if (stepNumber) setCurrentStepOpen(stepNumber);
@@ -1694,6 +1818,8 @@ export default function App() {
   };
 
   const startRatiosTraining = (stepNumber = null) => {
+    transitionGuardRef.current = '';
+    resetBeatVisualizer();
     setActiveTrainingStep(stepNumber);
     setActiveTrainingMode('ratios');
     if (stepNumber) setCurrentStepOpen(stepNumber);
@@ -1711,10 +1837,13 @@ export default function App() {
 
     setRatiosProgress({
       activeLoop: 1,
+      currentBar: 1,
       currentSubdivision: ratiosConfig.loop1,
       currentBeat: 1,
       countInRemaining: hasCountIn ? ratiosConfig.initialCountIn : 0,
       countInTotal: hasCountIn ? ratiosConfig.initialCountIn : 0,
+      countInTargetLoop: 1,
+      countInTargetSubdivision: ratiosConfig.loop1,
       isCountIn: hasCountIn,
       isActive: true,
       isPaused: false
@@ -1736,6 +1865,7 @@ export default function App() {
   };
 
   const stopRatiosTraining = () => {
+    transitionGuardRef.current = '';
     audioEngine.stop();
     setActiveTrainingStep(null);
     setActiveTrainingMode(null);
@@ -1747,12 +1877,13 @@ export default function App() {
       isCountIn: false,
       currentBeat: 1,
       activeLoop: 1,
+      currentBar: 1,
       currentSubdivision: ratiosConfig.loop1
     }));
   };
 
   useEffect(() => {
-    audioEngine.onBeat = (beatNumber, isBarStart) => {
+    audioEngine.onBeat = (beatNumber, isBarStart, beatTime) => {
       const currentMode = activeTab === 'daily'
         ? (activeTrainingMode || (currentStepOpen === 1 ? step1SubTab : currentStepOpen === 2 ? step2SubTab : step3SubTab))
         : activeMetronomeMode;
@@ -1774,14 +1905,14 @@ export default function App() {
               // The lookahead scheduler may already have queued the next
               // count-in click. Restart at the boundary so it cannot leak
               // one extra quarter-note before the real exercise begins.
-              audioEngine.stop();
-              audioEngine.setTimeSignature(speedConfig.timeSignature);
-              const trainingSubdivision = activeTrainingStep
-                ? (practiceSession[`step${activeTrainingStep}`]?.subdivision || SUBDIVISIONS[0])
-                : selectedSubdivision;
-              audioEngine.setSubdivision(trainingSubdivision);
-              audioEngine.setBpm(s.currentBpm);
-              audioEngine.start();
+              const transitionKey = `speed-real-${s.currentBpm}-${s.completedStages}`;
+              if (transitionGuardRef.current !== transitionKey) {
+                transitionGuardRef.current = transitionKey;
+                const trainingSubdivision = activeTrainingStep
+                  ? (practiceSession[`step${activeTrainingStep}`]?.subdivision || SUBDIVISIONS[0])
+                  : selectedSubdivision;
+                audioEngine.switchPhase({ timeSignature: speedConfig.timeSignature, subdivision: trainingSubdivision, bpm: s.currentBpm, firstNoteDelay: 60 / s.currentBpm, anchorTime: beatTime });
+              }
               return s;
             }
           }
@@ -1824,7 +1955,13 @@ export default function App() {
                   if (speedConfig.countInEnabled && speedConfig.speedIncreaseCountIn > 0) {
                     s.stage = 'increasing';
                     s.countInRemaining = speedConfig.speedIncreaseCountIn;
-                    configureQuarterNoteCountIn(speedConfig.speedIncreaseCountIn);
+                    // Drop any look-ahead notes from the previous BPM before
+                    // scheduling the new quarter-note count-in.
+                    const transitionKey = `speed-countin-${s.currentBpm}-${s.completedStages}`;
+                    if (transitionGuardRef.current !== transitionKey) {
+                      transitionGuardRef.current = transitionKey;
+                      audioEngine.switchPhase({ timeSignature: { beats: speedConfig.speedIncreaseCountIn, noteValue: 4 }, subdivision: SUBDIVISIONS[0], bpm: s.currentBpm, firstNoteDelay: 60 / s.currentBpm, anchorTime: beatTime });
+                    }
                   }
                 }
               }
@@ -1846,14 +1983,17 @@ export default function App() {
               r.countInRemaining = 0;
               r.isCountIn = false;
               r.currentBeat = 1;
-              r.activeLoop = 1;
-              r.currentSubdivision = ratiosConfig.loop1;
-              // Clear the lookahead queue at the exact count-in boundary.
-              audioEngine.stop();
-              audioEngine.setTimeSignature({ beats: ratiosConfig.numberOfBeats, noteValue: 4 });
-              audioEngine.setSubdivision(ratiosConfig.loop1);
-              audioEngine.setBpm(ratiosConfig.bpm);
-              audioEngine.start();
+              r.currentBar = 1;
+              r.activeLoop = r.countInTargetLoop || 1;
+              r.currentSubdivision = r.countInTargetSubdivision || ratiosConfig.loop1;
+              // The callback is now aligned to the final count-in note. Stop
+              // its lookahead queue and start the real section on the next
+              // exact beat, preventing a duplicate first click.
+              const transitionKey = `ratios-real-${r.activeLoop}-${r.currentSubdivision.id}`;
+              if (transitionGuardRef.current !== transitionKey) {
+                transitionGuardRef.current = transitionKey;
+                audioEngine.switchPhase({ timeSignature: { beats: ratiosConfig.numberOfBeats, noteValue: 4 }, subdivision: r.currentSubdivision, bpm: ratiosConfig.bpm, firstNoteDelay: 60 / ratiosConfig.bpm, anchorTime: beatTime });
+              }
               return r;
             }
           }
@@ -1861,31 +2001,40 @@ export default function App() {
           if (r.currentBeat < ratiosConfig.numberOfBeats) {
             r.currentBeat += 1;
           } else {
-            if (ratiosConfig.subdivisionRatioEnabled) {
-              const nextLoop = r.activeLoop === 1 ? 2 : 1;
-              const nextSubdiv = nextLoop === 1 ? ratiosConfig.loop1 : ratiosConfig.loop2;
-
-              if (r.activeLoop === 2 && ratiosConfig.countInEnabled && ratiosConfig.repeatCountIn > 0) {
-                r.isCountIn = true;
-                r.countInRemaining = ratiosConfig.repeatCountIn;
-                r.countInTotal = ratiosConfig.repeatCountIn;
-                r.currentBeat = 1;
-                r.activeLoop = 1;
-                r.currentSubdivision = ratiosConfig.loop1;
-                configureQuarterNoteCountIn(ratiosConfig.repeatCountIn);
-                return r;
-              }
-
-              r.activeLoop = nextLoop;
-              r.currentSubdivision = nextSubdiv;
+            if (r.currentBar < ratiosConfig.barsPerLoop) {
+              r.currentBar += 1;
               r.currentBeat = 1;
-              audioEngine.setSubdivision(nextSubdiv);
-            } else {
-              r.activeLoop = 1;
-              r.currentSubdivision = ratiosConfig.loop1;
-              r.currentBeat = 1;
-              audioEngine.setSubdivision(ratiosConfig.loop1);
+              return r;
             }
+
+            const nextLoop = ratiosConfig.subdivisionRatioEnabled ? (r.activeLoop === 1 ? 2 : 1) : 1;
+            const nextSubdiv = nextLoop === 1 ? ratiosConfig.loop1 : ratiosConfig.loop2;
+            const transitionCountIn = ratiosConfig.countInEnabled
+              ? (r.activeLoop === 1 ? ratiosConfig.repeatCountIn : ratiosConfig.repeatCountIn)
+              : 0;
+
+            r.currentBar = 1;
+            r.currentBeat = 1;
+            r.countInTargetLoop = nextLoop;
+            r.countInTargetSubdivision = nextSubdiv;
+
+            if (transitionCountIn > 0) {
+              r.isCountIn = true;
+              r.countInRemaining = transitionCountIn;
+              r.countInTotal = transitionCountIn;
+              // Clear notes already scheduled for the previous subdivision so
+              // the count-in begins on a clean quarter-note boundary.
+              const transitionKey = `ratios-countin-${r.activeLoop}-${r.currentBar}-${nextLoop}-${nextSubdiv.id}`;
+              if (transitionGuardRef.current !== transitionKey) {
+                transitionGuardRef.current = transitionKey;
+                audioEngine.switchPhase({ timeSignature: { beats: transitionCountIn, noteValue: 4 }, subdivision: SUBDIVISIONS[0], bpm: ratiosConfig.bpm, firstNoteDelay: 60 / ratiosConfig.bpm, anchorTime: beatTime });
+              }
+              return r;
+            }
+
+            r.activeLoop = nextLoop;
+            r.currentSubdivision = nextSubdiv;
+            audioEngine.setSubdivision(nextSubdiv);
           }
 
           return r;
@@ -1902,32 +2051,39 @@ export default function App() {
     ratiosConfig, ratiosProgress.isActive, ratiosProgress.isPaused
   ]);
 
-  // Visualizer loop
+  // Drive the visualizer from the same Web Audio timestamps as the clicks.
+  // Polling scheduledEvents with requestAnimationFrame can select an older
+  // event after a phase transition, making the graphic visibly lag the audio.
   useEffect(() => {
-    let animId;
-    const checkScheduledNotes = () => {
-      if (audioEngine.audioCtx) {
-        const currentTime = audioEngine.audioCtx.currentTime;
-        const events = audioEngine.scheduledEvents;
+    audioEngine.onVisualNote = (event) => {
+      visualizerEventTimeRef.current = event.time;
+      setActiveDotInfo({
+        dotsPerBeat: event.dotsPerBeat,
+        activeDotIndex: event.activeDotIndex,
+        isDownbeat: event.isDownbeat,
+        isBeatStart: event.isBeatStart,
+        beatNumber: event.beatNumber
+      });
 
-        for (let i = events.length - 1; i >= 0; i--) {
-          if (events[i].time <= currentTime) {
-            setActiveDotInfo({
-              dotsPerBeat: events[i].dotsPerBeat,
-              activeDotIndex: events[i].subdivisionIndex,
-              isDownbeat: events[i].isDownbeat,
-              isBeatStart: events[i].isBeatStart,
-              beatNumber: events[i].beatNumber
-            });
-            break;
-          }
+      // Keep the flash short, but do not allow an older timeout to clear a
+      // newer beat that has already arrived.
+      const eventTime = event.time;
+      const beatIntervalMs = (event.dotsPerBeat > 0 && audioEngine.bpm > 0)
+        ? (60000 / audioEngine.bpm / event.dotsPerBeat)
+        : 160;
+      const flashDurationMs = Math.max(80, Math.min(180, beatIntervalMs * 0.72));
+      setTimeout(() => {
+        if (visualizerEventTimeRef.current === eventTime) {
+          setActiveDotInfo(prev => prev.activeDotIndex === -1
+            ? prev
+            : { ...prev, activeDotIndex: -1, isDownbeat: false, isBeatStart: false });
         }
-      }
-      animId = requestAnimationFrame(checkScheduledNotes);
+      }, flashDurationMs);
     };
 
-    animId = requestAnimationFrame(checkScheduledNotes);
-    return () => cancelAnimationFrame(animId);
+    return () => {
+      audioEngine.onVisualNote = null;
+    };
   }, []);
 
   const togglePlay = (targetBpm = bpm, targetSubdiv = selectedSubdivision, stepNumber = null) => {
@@ -2431,8 +2587,22 @@ export default function App() {
   };
 
   const renderDotVisualiser = (subdiv = selectedSubdivision, currentBpm = bpm, customBeatsCount = null) => {
-    const beatsCount = customBeatsCount || timeSignature.beats || 4;
-    const dotsCount = subdiv?.dotsPerBeat || 1;
+    // Keep the just-fired final count-in beat visible for the current render
+    // even if the training state has already switched to the real section.
+    // Otherwise a count-in of 5–8 can redraw the shorter exercise grid and
+    // hide its last glowing dot immediately.
+    const beatsCount = Math.max(
+      customBeatsCount || timeSignature.beats || 4,
+      activeDotInfo.beatNumber || 1
+    );
+    // During a transition the configured subdivision can change before the
+    // last scheduled note has visually fired. Render the shape belonging to
+    // the actual audio event, otherwise dot indexes can appear on the wrong
+    // beat (for example, dot 1 displayed as dot 4).
+    const dotsCount = isPlaying && activeDotInfo.dotsPerBeat
+      ? activeDotInfo.dotsPerBeat
+      : (subdiv?.dotsPerBeat || 1);
+    const beatColors = ['#22D3EE', '#34D399', '#A78BFA', '#FBBF24'];
     return (
       <div className="w-full max-w-4xl mx-auto my-5 select-none px-1">
         <div className="flex items-center justify-center gap-3 sm:gap-5 flex-wrap" aria-label="Beat subdivision visualizer">
@@ -2444,7 +2614,8 @@ export default function App() {
                 <div className="flex items-center justify-center gap-1.5 sm:gap-2 min-h-8">
                   {Array.from({ length: dotsCount }).map((__, dotIdx) => {
                     const active = activeBeat && activeDotInfo.activeDotIndex === dotIdx;
-                    return <span key={dotIdx} className="block rounded-full transition-all duration-75" style={{ width: dotsCount > 4 ? 8 : 12, height: dotsCount > 4 ? 8 : 12, background: active ? (beatIdx === 0 ? currentTheme.secondary : currentTheme.primary) : '#30303D', transform: active ? 'scale(1.45)' : 'scale(1)', boxShadow: active ? `0 0 14px ${beatIdx === 0 ? currentTheme.secondary : currentTheme.primary}` : 'none' }} />;
+                    const activeColor = beatColors[beatIdx % beatColors.length];
+                    return <span key={dotIdx} className="block rounded-full transition-none" style={{ width: dotsCount > 4 ? 8 : 12, height: dotsCount > 4 ? 8 : 12, background: active ? activeColor : '#30303D', transform: active ? 'scale(1.45)' : 'scale(1)', boxShadow: active ? `0 0 14px ${activeColor}` : 'none' }} />;
                   })}
                 </div>
               </div>
@@ -2637,6 +2808,7 @@ export default function App() {
                     <option value="beep" className="bg-[#15151D]">{soundOptionLabel('beep', 'Cyber Beep')}</option>
                     <option value="rimshot" className="bg-[#15151D]">{soundOptionLabel('rimshot', 'Tight Rimshot')}</option>
                     <option value="mechanical" className="bg-[#15151D]">{soundOptionLabel('mechanical', 'Mechanical')}</option>
+                    <option value="clave" className="bg-[#15151D]">{soundOptionLabel('clave', 'Clave')}</option><option value="softclick" className="bg-[#15151D]">{soundOptionLabel('softclick', 'Soft Click')}</option><option value="cowbell" className="bg-[#15151D]">{soundOptionLabel('cowbell', 'Cowbell')}</option><option value="tick" className="bg-[#15151D]">{soundOptionLabel('tick', 'Precision Tick')}</option><option value="digital" className="bg-[#15151D]">{soundOptionLabel('digital', 'Digital Pulse')}</option><option value="snap" className="bg-[#15151D]">{soundOptionLabel('snap', 'Snap Click')}</option><option value="shaker" className="bg-[#15151D]">{soundOptionLabel('shaker', 'Shaker')}</option><option value="handclap" className="bg-[#15151D]">{soundOptionLabel('handclap', 'Hand Clap')}</option>
                   </select>
                   <button type="button" onClick={() => toggleFavoriteMetronomeSound(soundType)} className="text-sm" style={{ color: favoriteMetronomeSounds.includes(soundType) ? currentTheme.primary : '#92929F' }} title="Favourite click sound">{favoriteMetronomeSounds.includes(soundType) ? '★' : '☆'}</button>
                 </div>
@@ -2746,13 +2918,13 @@ export default function App() {
                   : speedConfig.timeSignature.beats
             )}
 
-            <div className="bg-[#101016] p-2.5 sm:p-3 rounded-xl border border-white/5 flex items-center justify-between flex-wrap gap-2 text-xs">
-              <div className="text-[#92929F] flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
-                <span>Target: <strong className="text-white font-mono">{speedConfig.endBpm}</strong></span>
+              <div className="bg-[#101016] p-4 sm:p-5 rounded-xl border border-white/10 flex items-center justify-between flex-wrap gap-3 text-sm sm:text-base shadow-lg">
+                <div className="text-[#92929F] flex items-center gap-2 sm:gap-3 text-sm sm:text-base font-medium">
+                  <span>Target: <strong className="text-white font-mono text-base sm:text-lg">{speedConfig.endBpm}</strong></span>
                 &bull;
-                <span>Bar: <strong className="font-mono" style={{ color: currentTheme.primary }}>{speedProgress.currentBar}/{speedConfig.barsPerLoop}</strong></span>
+                  <span>Bar: <strong className="font-mono text-base sm:text-lg" style={{ color: currentTheme.primary }}>{speedProgress.currentBar}/{speedConfig.barsPerLoop}</strong></span>
                 &bull;
-                <span>Loop: <strong className="font-mono" style={{ color: currentTheme.primary }}>{speedProgress.currentLoop}/{speedConfig.loopsBeforeIncrease}</strong></span>
+                  <span>Loop: <strong className="font-mono text-base sm:text-lg" style={{ color: currentTheme.primary }}>{speedProgress.currentLoop}/{speedConfig.loopsBeforeIncrease}</strong></span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -2816,7 +2988,7 @@ export default function App() {
               )}
 
               <button
-                onClick={() => startSpeedTraining(stepNumber)}
+                onClick={stopSpeedTraining}
                 className="px-3.5 py-2.5 rounded-2xl bg-[#1B1B25] border border-white/5 text-white font-semibold text-xs flex items-center gap-1 hover:bg-[#252533] hover:border-white/10 active:scale-95 transition-all"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -2831,7 +3003,7 @@ export default function App() {
             {!ratiosProgress.isActive && (
               <div className="space-y-3 border-b border-white/5 pb-3">
                 <div className="text-center"><h3 className="text-sm font-bold text-white font-gx-display">Ratios Training Setup</h3><p className="text-[10px] text-[#92929F] mt-1">Same subdivision, count-in, and loop controls as Master Studio Metronome.</p></div>
-                <div className="grid sm:grid-cols-2 gap-2">{renderNumberSetting('BPM', ratiosConfig.bpm, 30, 320, 1, v => setRatiosConfig(p => ({ ...p, bpm: v })))}{renderNumberSetting('# of Beats', ratiosConfig.numberOfBeats, 1, 16, 1, v => setRatiosConfig(p => ({ ...p, numberOfBeats: v })))}</div>
+                <div className="grid sm:grid-cols-2 gap-2">{renderNumberSetting('BPM', ratiosConfig.bpm, 30, 320, 1, v => setRatiosConfig(p => ({ ...p, bpm: v })))}{renderNumberSetting('# of Beats', ratiosConfig.numberOfBeats, 1, 16, 1, v => setRatiosConfig(p => ({ ...p, numberOfBeats: v })))}{renderNumberSetting('Bars per subdivision', ratiosConfig.barsPerLoop, 1, 32, 1, v => setRatiosConfig(p => ({ ...p, barsPerLoop: v })) )}</div>
                 <div className="rounded-xl bg-[#101016] border border-white/5 p-2.5"><label className="flex items-center justify-between text-xs text-white font-semibold">Count In <button type="button" onClick={() => setRatiosConfig(p => ({ ...p, countInEnabled: !p.countInEnabled }))} className="px-3 py-1 rounded-full text-[10px] font-bold" style={{ background: ratiosConfig.countInEnabled ? currentTheme.primary : '#30303D' }}>{ratiosConfig.countInEnabled ? 'ON' : 'OFF'}</button></label>{ratiosConfig.countInEnabled && <div className="grid sm:grid-cols-2 gap-2 mt-2">{renderNumberSetting('Initial Count In', ratiosConfig.initialCountIn, 0, 16, 1, v => setRatiosConfig(p => ({ ...p, initialCountIn: v })))}{renderNumberSetting('Repeat Count In', ratiosConfig.repeatCountIn, 0, 16, 1, v => setRatiosConfig(p => ({ ...p, repeatCountIn: v })))}</div>}</div>
                 <div className="rounded-xl bg-[#101016] border border-white/5 p-2.5"><label className="flex items-center justify-between text-xs text-white font-semibold">Subdivision Ratio <button type="button" onClick={() => setRatiosConfig(p => ({ ...p, subdivisionRatioEnabled: !p.subdivisionRatioEnabled }))} className="px-3 py-1 rounded-full text-[10px] font-bold" style={{ background: ratiosConfig.subdivisionRatioEnabled ? currentTheme.primary : '#30303D' }}>{ratiosConfig.subdivisionRatioEnabled ? 'ON' : 'OFF'}</button></label>{ratiosConfig.subdivisionRatioEnabled && <div className="grid sm:grid-cols-2 gap-2 mt-2">{[['Loop 1', 'loop1'], ['Loop 2', 'loop2']].map(([label, key]) => <label key={key} className="text-[10px] text-[#92929F]">{label}<select value={ratiosConfig[key].id} onChange={e => setRatiosConfig(p => ({ ...p, [key]: SUBDIVISIONS.find(x => x.id === e.target.value) || p[key] }))} className="w-full p-2 rounded-lg bg-[#20202B] text-white border border-white/10 mt-1">{SUBDIVISIONS.filter(x => x.id !== 'quarter').map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>)}</div>}</div>
               </div>
@@ -2851,22 +3023,22 @@ export default function App() {
               ratiosProgress.isCountIn ? ratiosProgress.countInTotal : ratiosConfig.numberOfBeats
             )}
 
-            <div className="bg-[#101016] p-2.5 sm:p-3 rounded-xl border border-white/5 flex items-center justify-between flex-wrap gap-2 text-xs">
+            <div className="bg-[#101016] p-4 sm:p-5 rounded-xl border border-white/10 flex items-center justify-between flex-wrap gap-3 text-sm sm:text-base shadow-lg">
               <div>
-                <div className="font-mono text-white flex items-center gap-1.5 font-bold text-[11px] sm:text-xs">
+                <div className="font-mono text-white flex items-center gap-2 font-bold text-sm sm:text-base">
                   Loop {ratiosProgress.activeLoop}:
-                  <span className="truncate max-w-[140px] sm:max-w-none" style={{ color: currentTheme.primary }}>
+                  <span className="truncate max-w-[180px] sm:max-w-none" style={{ color: currentTheme.primary }}>
                     {ratiosProgress.currentSubdivision.name}
                   </span>
                 </div>
-                <div className="text-[10px] sm:text-[11px] text-[#92929F]">
+                <div className="text-xs sm:text-sm text-[#92929F] mt-1">
                   Beat {ratiosProgress.currentBeat} of {ratiosConfig.numberOfBeats}
                 </div>
               </div>
 
               {ratiosProgress.isCountIn && (
                 <div
-                  className="px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold animate-pulse"
+                  className="px-3 py-1 rounded-full border text-xs sm:text-sm font-mono font-bold animate-pulse"
                   style={{
                     backgroundColor: currentTheme.accentBg,
                     borderColor: currentTheme.primary,
@@ -3161,6 +3333,16 @@ export default function App() {
     );
   }
 
+  const selectedStepMode = currentStepOpen === 1 ? step1SubTab : currentStepOpen === 2 ? step2SubTab : step3SubTab;
+  const headerMode = activeTrainingMode || (activeTab === 'metronome' ? activeMetronomeMode : selectedStepMode);
+  const headerBpm = headerMode === 'speed'
+    ? (speedProgress.isActive ? speedProgress.currentBpm : speedConfig.startBpm)
+    : headerMode === 'ratios'
+      ? ratiosConfig.bpm
+      : activeTrainingStep
+        ? practiceSession[`step${activeTrainingStep}`]?.bpm || bpm
+        : bpm;
+
   return (
     <div
       className="w-full min-h-[100dvh] text-[#FFFFFF] flex flex-col font-gx-body antialiased selection:bg-[#FA1E4E]/30 selection:text-white pb-20 md:pb-6 relative overflow-x-hidden"
@@ -3386,7 +3568,7 @@ export default function App() {
             }}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-            <span className="font-gx-num text-xs sm:text-sm">{bpm} BPM</span>
+            <span className="font-gx-num text-xs sm:text-sm">{headerBpm} BPM</span>
           </button>
         </div>
       </header>
@@ -4112,6 +4294,7 @@ export default function App() {
                           <option value="beep" className="bg-[#15151D]">{soundOptionLabel('beep', 'Cyber Beep')}</option>
                           <option value="rimshot" className="bg-[#15151D]">{soundOptionLabel('rimshot', 'Tight Rimshot')}</option>
                           <option value="mechanical" className="bg-[#15151D]">{soundOptionLabel('mechanical', 'Mechanical')}</option>
+                          <option value="clave" className="bg-[#15151D]">{soundOptionLabel('clave', 'Clave')}</option><option value="softclick" className="bg-[#15151D]">{soundOptionLabel('softclick', 'Soft Click')}</option><option value="cowbell" className="bg-[#15151D]">{soundOptionLabel('cowbell', 'Cowbell')}</option><option value="tick" className="bg-[#15151D]">{soundOptionLabel('tick', 'Precision Tick')}</option><option value="digital" className="bg-[#15151D]">{soundOptionLabel('digital', 'Digital Pulse')}</option><option value="snap" className="bg-[#15151D]">{soundOptionLabel('snap', 'Snap Click')}</option><option value="shaker" className="bg-[#15151D]">{soundOptionLabel('shaker', 'Shaker')}</option><option value="handclap" className="bg-[#15151D]">{soundOptionLabel('handclap', 'Hand Clap')}</option>
                         </select>
                         <button type="button" onClick={() => toggleFavoriteMetronomeSound(soundType)} className="text-base" style={{ color: favoriteMetronomeSounds.includes(soundType) ? currentTheme.primary : '#92929F' }} title="Favourite click sound">{favoriteMetronomeSounds.includes(soundType) ? '★' : '☆'}</button>
                       </div>
@@ -4237,12 +4420,12 @@ export default function App() {
               <div className="bg-[#15151D] border border-white/5 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-2xl space-y-5 w-full">
                 {!ratiosProgress.isActive ? <>
                   <div className="text-center"><h3 className="text-lg font-bold text-white font-gx-display">Ratios Training Setup</h3><p className="text-xs text-[#92929F] mt-1">Alternate rhythmic subdivisions without losing the pulse.</p></div>
-                  <div className="grid sm:grid-cols-2 gap-3">{renderNumberSetting('BPM',ratiosConfig.bpm,30,320,1,v=>setRatiosConfig(p=>({...p,bpm:v})))}{renderNumberSetting('# of Beats',ratiosConfig.numberOfBeats,1,16,1,v=>setRatiosConfig(p=>({...p,numberOfBeats:v})))}</div>
+                  <div className="grid sm:grid-cols-2 gap-3">{renderNumberSetting('BPM',ratiosConfig.bpm,30,320,1,v=>setRatiosConfig(p=>({...p,bpm:v})))}{renderNumberSetting('# of Beats',ratiosConfig.numberOfBeats,1,16,1,v=>setRatiosConfig(p=>({...p,numberOfBeats:v})))}{renderNumberSetting('Bars per subdivision',ratiosConfig.barsPerLoop,1,32,1,v=>setRatiosConfig(p=>({...p,barsPerLoop:v})))}</div>
                   <div className="rounded-xl bg-[#101016] border border-white/5 p-3 space-y-3"><label className="flex items-center justify-between text-sm text-white font-semibold">Count In <button type="button" onClick={()=>setRatiosConfig(p=>({...p,countInEnabled:!p.countInEnabled}))} className="px-4 py-1.5 rounded-full text-xs font-bold" style={{background:ratiosConfig.countInEnabled?currentTheme.primary:'#30303D',color:'#fff'}}>{ratiosConfig.countInEnabled?'ON':'OFF'}</button></label>{ratiosConfig.countInEnabled&&<div className="grid sm:grid-cols-2 gap-3">{renderNumberSetting('Initial Count In',ratiosConfig.initialCountIn,0,16,1,v=>setRatiosConfig(p=>({...p,initialCountIn:v})))}{renderNumberSetting('Repeat Count In',ratiosConfig.repeatCountIn,0,16,1,v=>setRatiosConfig(p=>({...p,repeatCountIn:v})))}</div>}</div>
                   <div className="rounded-xl bg-[#101016] border border-white/5 p-3 space-y-3"><label className="flex items-center justify-between text-sm text-white font-semibold">Subdivision Ratio <button type="button" onClick={()=>setRatiosConfig(p=>({...p,subdivisionRatioEnabled:!p.subdivisionRatioEnabled}))} className="px-4 py-1.5 rounded-full text-xs font-bold" style={{background:ratiosConfig.subdivisionRatioEnabled?currentTheme.primary:'#30303D',color:'#fff'}}>{ratiosConfig.subdivisionRatioEnabled?'ON':'OFF'}</button></label>{ratiosConfig.subdivisionRatioEnabled&&<div className="grid sm:grid-cols-2 gap-3">{[['Loop 1','loop1'],['Loop 2','loop2']].map(([label,key])=><label key={key} className="text-xs text-[#92929F] space-y-2">{label}<select value={ratiosConfig[key].id} onChange={e=>setRatiosConfig(p=>({...p,[key]:SUBDIVISIONS.find(x=>x.id===e.target.value)||p[key]}))} className="w-full p-3 rounded-lg bg-[#20202B] text-white border border-white/10">{SUBDIVISIONS.filter(x=>x.id!=='quarter').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>)}</div>}</div>
                   <button onClick={startRatiosTraining} className="w-full py-4 rounded-xl text-white font-extrabold tracking-wide" style={{background:currentTheme.primary,boxShadow:`0 0 18px ${currentTheme.glow}`}}>▶ START TRAINING</button>
                 </> : <>
-                  <div className="text-center space-y-1"><div className="text-xs uppercase tracking-[.2em] font-bold" style={{color:currentTheme.primary}}>{ratiosProgress.isCountIn?`↻ COUNT IN ${ratiosProgress.countInRemaining}`:`BEAT ${ratiosProgress.currentBeat}/${ratiosConfig.numberOfBeats} · LOOP ${ratiosProgress.activeLoop}`}</div><div className="text-fluid-bpm font-black font-gx-num" style={{color:currentTheme.primary}}>{ratiosConfig.bpm}</div><div className="text-[10px] uppercase tracking-widest text-[#92929F]">{ratiosProgress.currentSubdivision.name}</div></div>
+                  <div className="text-center space-y-1"><div className="text-xs uppercase tracking-[.2em] font-bold" style={{color:currentTheme.primary}}>{ratiosProgress.isCountIn?`↻ COUNT IN ${ratiosProgress.countInRemaining}`:`BEAT ${ratiosProgress.currentBeat}/${ratiosConfig.numberOfBeats} · BAR ${ratiosProgress.currentBar}/${ratiosConfig.barsPerLoop} · LOOP ${ratiosProgress.activeLoop}`}</div><div className="text-fluid-bpm font-black font-gx-num" style={{color:currentTheme.primary}}>{ratiosConfig.bpm}</div><div className="text-[10px] uppercase tracking-widest text-[#92929F]">{ratiosProgress.currentSubdivision.name}</div></div>
                   {renderDotVisualiser(
                     ratiosProgress.isCountIn ? SUBDIVISIONS[0] : ratiosProgress.currentSubdivision,
                     ratiosConfig.bpm,
