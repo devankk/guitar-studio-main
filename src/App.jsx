@@ -1132,38 +1132,23 @@ export default function App() {
         if (!data) return;
 
         if (Array.isArray(data.historySessions)) {
-          let localHistory = [];
-          try { localHistory = JSON.parse(localStorage.getItem(`gps_history_${activeUserId}`) || '[]'); } catch {}
-          const mergedHistory = [...data.historySessions, ...localHistory]
-            .filter((session, index, all) => session?.id && all.findIndex(item => item?.id === session.id) === index);
-          setHistorySessions(mergedHistory);
-          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(mergedHistory)); } catch {}
+          setHistorySessions(data.historySessions);
+          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(data.historySessions)); } catch {}
         }
 
         if (Array.isArray(data.exercises)) {
-          let localExercises = [];
-          try { localExercises = JSON.parse(localStorage.getItem(`gps_exercises_${activeUserId}`) || '[]'); } catch {}
-          const mergedExercises = [...data.exercises, ...localExercises]
-            .filter((exercise, index, all) => exercise?.id && all.findIndex(item => item?.id === exercise.id) === index);
-          setExercises(mergedExercises);
-          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(mergedExercises)); } catch {}
+          setExercises(data.exercises);
+          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(data.exercises)); } catch {}
         }
 
         if (Array.isArray(data.practicedCalendarDays)) {
-          let localCalendar = [];
-          try { localCalendar = JSON.parse(localStorage.getItem(`gps_practiced_dates_${activeUserId}`) || '[]'); } catch {}
-          const mergedCalendar = [...new Set([...data.practicedCalendarDays, ...localCalendar])];
-          setPracticedCalendarDays(mergedCalendar);
-          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(mergedCalendar)); } catch {}
+          setPracticedCalendarDays(data.practicedCalendarDays);
+          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(data.practicedCalendarDays)); } catch {}
         }
 
         if (Array.isArray(data.manualPracticeLogs)) {
-          let localManual = [];
-          try { localManual = JSON.parse(localStorage.getItem('gps_manual_practice_logs') || '[]'); } catch {}
-          const mergedManual = [...data.manualPracticeLogs, ...localManual]
-            .filter((item, index, all) => item?.id && all.findIndex(m => m?.id === item.id) === index);
-          setManualPracticeLogs(mergedManual);
-          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(mergedManual)); } catch {}
+          setManualPracticeLogs(data.manualPracticeLogs);
+          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(data.manualPracticeLogs)); } catch {}
         }
       }, (error) => {
         console.warn('Firebase realtime listener notice:', error);
@@ -1449,35 +1434,20 @@ export default function App() {
 
       if (fetchedData) {
         if (Array.isArray(fetchedData.historySessions)) {
-          let localHistory = [];
-          try { localHistory = JSON.parse(localStorage.getItem(`gps_history_${activeUserId}`) || '[]'); } catch {}
-          const mergedHistory = [...fetchedData.historySessions, ...localHistory]
-            .filter((session, index, all) => session?.id && all.findIndex(item => item?.id === session.id) === index);
-          setHistorySessions(mergedHistory);
-          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(mergedHistory)); } catch {}
+          setHistorySessions(fetchedData.historySessions);
+          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(fetchedData.historySessions)); } catch {}
         }
         if (Array.isArray(fetchedData.exercises)) {
-          let localExercises = [];
-          try { localExercises = JSON.parse(localStorage.getItem(`gps_exercises_${activeUserId}`) || '[]'); } catch {}
-          const mergedExercises = [...fetchedData.exercises, ...localExercises]
-            .filter((exercise, index, all) => exercise?.id && all.findIndex(item => item?.id === exercise.id) === index);
-          setExercises(mergedExercises);
-          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(mergedExercises)); } catch {}
+          setExercises(fetchedData.exercises);
+          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(fetchedData.exercises)); } catch {}
         }
         if (Array.isArray(fetchedData.practicedCalendarDays)) {
-          let localCalendar = [];
-          try { localCalendar = JSON.parse(localStorage.getItem(`gps_practiced_dates_${activeUserId}`) || '[]'); } catch {}
-          const mergedCalendar = [...new Set([...fetchedData.practicedCalendarDays, ...localCalendar])];
-          setPracticedCalendarDays(mergedCalendar);
-          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(mergedCalendar)); } catch {}
+          setPracticedCalendarDays(fetchedData.practicedCalendarDays);
+          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(fetchedData.practicedCalendarDays)); } catch {}
         }
         if (Array.isArray(fetchedData.manualPracticeLogs)) {
-          let localManual = [];
-          try { localManual = JSON.parse(localStorage.getItem('gps_manual_practice_logs') || '[]'); } catch {}
-          const mergedManual = [...fetchedData.manualPracticeLogs, ...localManual]
-            .filter((item, index, all) => item?.id && all.findIndex(m => m?.id === item.id) === index);
-          setManualPracticeLogs(mergedManual);
-          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(mergedManual)); } catch {}
+          setManualPracticeLogs(fetchedData.manualPracticeLogs);
+          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(fetchedData.manualPracticeLogs)); } catch {}
         }
         if (!silent) {
           setSyncStatus('synced');
