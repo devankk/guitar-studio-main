@@ -1376,11 +1376,10 @@ export default function App() {
   };
 
   const syncToCloud = async (overrideData = null) => {
-    const activeSyncKey = userProfiles[activeUserId]?.syncKey || syncKey || `wgs-sync-${activeUserId}`;
-    if (!activeSyncKey) {
-      setSyncStatus('error');
-      return;
-    }
+    // Channel is strictly tied to the active user profile (e.g. user1, user2)
+    // so PC and Phone ALWAYS talk to the exact same room regardless of previously saved keys in localStorage
+    const cleanKey = `wgs_studio_${activeUserId}`;
+
     setIsSyncing(true);
     setSyncStatus(null);
 
@@ -1393,8 +1392,6 @@ export default function App() {
       manualPracticeLogs,
       updatedAt: new Date().toISOString()
     };
-
-    const cleanKey = `wgs_${activeUserId}_${activeSyncKey.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
     try {
       const res = await fetch(`https://ntfy.sh/${cleanKey}`, {
@@ -1422,15 +1419,10 @@ export default function App() {
   };
 
   const fetchCloudData = async (keyToFetch = null, silent = false) => {
-    const rawKey = keyToFetch || userProfiles[activeUserId]?.syncKey || syncKey || `wgs-sync-${activeUserId}`;
-    if (!rawKey) {
-      if (!silent) setSyncStatus('error');
-      return;
-    }
+    const cleanKey = `wgs_studio_${activeUserId}`;
+
     setIsSyncing(true);
     if (!silent) setSyncStatus(null);
-
-    const cleanKey = `wgs_${activeUserId}_${rawKey.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
     try {
       let fetchedData = null;
