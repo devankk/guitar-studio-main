@@ -4535,7 +4535,16 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
                 {exercises.map(ex => {
                   const range = (ex.targetBpm - ex.startBpm) || 1;
-                  const current = (ex.currentBpm - ex.startBpm);
+                  const isActiveExercise = ex.id === practiceSession.selectedExerciseId;
+                  const liveTrainingBpm = isActiveExercise && activeTrainingMode === 'speed' && speedProgress.isActive
+                    ? speedProgress.currentBpm
+                    : isActiveExercise && activeTrainingMode === 'ratios' && ratiosProgress.isActive
+                      ? ratiosConfig.bpm
+                      : isActiveExercise && activeTrainingStep
+                        ? getStepEffectiveBpm(activeTrainingStep)
+                        : ex.currentBpm;
+                  const currentBpm = Number(liveTrainingBpm) || Number(ex.currentBpm) || ex.startBpm;
+                  const current = currentBpm - ex.startBpm;
                   const pct = Math.min(100, Math.max(0, Math.round((current / range) * 100)));
 
                   return (
@@ -4558,7 +4567,7 @@ export default function App() {
                       </div>
                       <div className="flex items-center justify-between text-[10px] font-mono text-[#92929F]">
                         <span>Start: {ex.startBpm} BPM</span>
-                        <span className="text-white font-bold">Now: {ex.currentBpm} BPM</span>
+                        <span className="text-white font-bold">Now: {currentBpm} BPM</span>
                         <span>Goal: {ex.targetBpm} BPM</span>
                       </div>
                     </div>
