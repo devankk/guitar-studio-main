@@ -3677,18 +3677,6 @@ export default function App() {
             <span className="hidden sm:inline text-[11px] font-gx-display font-bold">Lock</span>
           </button>
 
-          {/* Cloud Sync Button */}
-          <button
-            onClick={() => setIsSyncModalOpen(true)}
-            className="order-6 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-[#15151D] border border-white/10 hover:border-white/20 text-[#92929F] hover:text-white flex items-center gap-1.5 transition-all text-xs"
-            title="Cloud Sync (Connect Phone & PC)"
-          >
-            <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'animate-bounce text-[#3B82F6]' : syncStatus === 'synced' ? 'text-[#10B981]' : ''}`} />
-            <span className="hidden sm:inline text-[11px] font-gx-display font-bold">
-              {isSyncing ? 'Syncing...' : syncStatus === 'synced' ? 'Synced' : 'Sync'}
-            </span>
-          </button>
-
           <div className="relative order-3">
             <button
               onClick={() => setIsThemePickerOpen(!isThemePickerOpen)}
