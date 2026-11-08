@@ -1430,22 +1430,27 @@ export default function App() {
 
       if (fetchedData) {
         if (Array.isArray(fetchedData.historySessions)) {
-          setHistorySessions(fetchedData.historySessions);
-          try {
-            localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(fetchedData.historySessions));
-          } catch {}
+          let localHistory = [];
+          try { localHistory = JSON.parse(localStorage.getItem(`gps_history_${activeUserId}`) || '[]'); } catch {}
+          const mergedHistory = [...fetchedData.historySessions, ...localHistory]
+            .filter((session, index, all) => session?.id && all.findIndex(item => item?.id === session.id) === index);
+          setHistorySessions(mergedHistory);
+          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(mergedHistory)); } catch {}
         }
         if (Array.isArray(fetchedData.exercises)) {
-          setExercises(fetchedData.exercises);
-          try {
-            localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(fetchedData.exercises));
-          } catch {}
+          let localExercises = [];
+          try { localExercises = JSON.parse(localStorage.getItem(`gps_exercises_${activeUserId}`) || '[]'); } catch {}
+          const mergedExercises = [...fetchedData.exercises, ...localExercises]
+            .filter((exercise, index, all) => exercise?.id && all.findIndex(item => item?.id === exercise.id) === index);
+          setExercises(mergedExercises);
+          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(mergedExercises)); } catch {}
         }
         if (Array.isArray(fetchedData.practicedCalendarDays)) {
-          setPracticedCalendarDays(fetchedData.practicedCalendarDays);
-          try {
-            localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(fetchedData.practicedCalendarDays));
-          } catch {}
+          let localCalendar = [];
+          try { localCalendar = JSON.parse(localStorage.getItem(`gps_practiced_dates_${activeUserId}`) || '[]'); } catch {}
+          const mergedCalendar = [...new Set([...fetchedData.practicedCalendarDays, ...localCalendar])];
+          setPracticedCalendarDays(mergedCalendar);
+          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(mergedCalendar)); } catch {}
         }
         setSyncStatus('synced');
         setTimeout(() => setSyncStatus(null), 3500);
