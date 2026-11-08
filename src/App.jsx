@@ -4535,6 +4535,12 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
                 {exercises.map(ex => {
                   const range = (ex.targetBpm - ex.startBpm) || 1;
+                  const loggedExerciseBpms = historySessions
+                    .filter(session => session.exerciseId === ex.id)
+                    .flatMap(session => [session.comfortBpm, session.edgeBpm, session.burstBpm])
+                    .map(value => Number(value))
+                    .filter(value => Number.isFinite(value) && value > 0);
+                  const savedCurrentBpm = Math.max(Number(ex.currentBpm) || 0, ...loggedExerciseBpms, Number(ex.startBpm) || 0);
                   const isActiveExercise = ex.id === practiceSession.selectedExerciseId;
                   const liveTrainingBpm = isActiveExercise && activeTrainingMode === 'speed' && speedProgress.isActive
                     ? speedProgress.currentBpm
@@ -4542,8 +4548,8 @@ export default function App() {
                       ? ratiosConfig.bpm
                       : isActiveExercise && activeTrainingStep
                         ? getStepEffectiveBpm(activeTrainingStep)
-                        : ex.currentBpm;
-                  const currentBpm = Number(liveTrainingBpm) || Number(ex.currentBpm) || ex.startBpm;
+                        : savedCurrentBpm;
+                  const currentBpm = Number(liveTrainingBpm) || savedCurrentBpm;
                   const current = currentBpm - ex.startBpm;
                   const pct = Math.min(100, Math.max(0, Math.round((current / range) * 100)));
 
@@ -4559,9 +4565,9 @@ export default function App() {
                         </span>
                         <span className="font-mono font-bold" style={{ color: currentTheme.primary }}>{pct}%</span>
                       </div>
-                      <div className="w-full bg-[#1B1B25] h-2 rounded-full overflow-hidden mb-1.5">
+                      <div className="w-full bg-[#1B1B25] h-2 rounded-full overflow-hidden mb-1.5 border border-white/5">
                         <div
-                          className="h-full rounded-full transition-all duration-300"
+                          className="h-full min-w-0.5 rounded-full transition-all duration-300"
                           style={{ width: `${pct}%`, backgroundColor: currentTheme.primary }}
                         />
                       </div>
