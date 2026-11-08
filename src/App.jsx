@@ -1536,8 +1536,14 @@ export default function App() {
         ['step1', 'step2', 'step3', 'step4'].forEach(stepKey => {
           if (next[stepKey].isTimerRunning) {
             changed = true;
-            const nextElapsedSeconds = (next[stepKey].elapsedSeconds || 0) + 1;
-            const nextRemainingSeconds = Math.max(0, (next[stepKey].remainingSeconds || 0) - 1);
+            const timerEndAt = Number(next[stepKey].timerEndAt || 0);
+            const nextRemainingSeconds = timerEndAt
+              ? Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000))
+              : Math.max(0, (next[stepKey].remainingSeconds || 0) - 1);
+            const nextElapsedSeconds = Math.max(
+              0,
+              (next[stepKey].durationMinutes * 60) - nextRemainingSeconds
+            );
             next[stepKey] = {
               ...next[stepKey],
               elapsedSeconds: nextElapsedSeconds,
@@ -1559,7 +1565,8 @@ export default function App() {
                 remainingSeconds: next[stepKey].durationMinutes * 60,
                 elapsedSeconds: 0,
                 activeAttemptId: null,
-                activeAttemptStartedAt: null
+                activeAttemptStartedAt: null,
+                timerEndAt: null
               };
               if (completedAttemptId && nextElapsedSeconds > 0) {
                 const record = { id: completedAttemptId, userId: activeUserId, practiceDayId: currentPracticeDayId, date: new Date().toISOString().slice(0, 10), stepNumber: Number(stepKey.replace('step', '')), stepName: stepKey, startedAt: completedStartedAt, endedAt: new Date().toISOString(), actualElapsedSeconds: Math.round(nextElapsedSeconds), configuredDurationSeconds: next[stepKey].durationMinutes * 60, bpm: completedBpm, mode: completedMode, status: 'completed' };
@@ -1594,7 +1601,14 @@ export default function App() {
     let stopwatchInterval = null;
     if (isManualTimerRunning) {
       stopwatchInterval = setInterval(() => {
-        setManualPracticeSeconds(prev => prev + 1);
+        const now = Date.now();
+        let lastTick = 0;
+        try { lastTick = Number(localStorage.getItem('gps_manual_last_tick') || now); } catch {}
+        const elapsedSinceLastTick = Math.max(0, Math.floor((now - lastTick) / 1000));
+        if (elapsedSinceLastTick > 0) {
+          setManualPracticeSeconds(prev => prev + elapsedSinceLastTick);
+          try { localStorage.setItem('gps_manual_last_tick', String(now)); } catch {}
+        }
       }, 1000);
     } else {
       if (stopwatchInterval) clearInterval(stopwatchInterval);
@@ -2179,7 +2193,8 @@ export default function App() {
       const startingNewAttempt = !step.isTimerRunning && !step.activeAttemptId;
       const stepNumber = Number(stepKey.replace('step', ''));
       const selectedMode = stepNumber === 1 ? step1SubTab : stepNumber === 2 ? step2SubTab : step3SubTab;
-      return { ...prev, [stepKey]: { ...step, isTimerRunning: !step.isTimerRunning, activeAttemptId: startingNewAttempt ? `attempt-${Date.now()}-${stepKey}` : step.activeAttemptId, activeAttemptStartedAt: startingNewAttempt ? new Date().toISOString() : step.activeAttemptStartedAt, bpmAtStart: startingNewAttempt ? getStepEffectiveBpm(stepNumber) : step.bpmAtStart, modeAtStart: startingNewAttempt ? selectedMode : step.modeAtStart } };
+      const isStarting = !step.isTimerRunning;
+      return { ...prev, [stepKey]: { ...step, isTimerRunning: isStarting, timerEndAt: isStarting ? Date.now() + Math.max(0, Number(step.remainingSeconds) || 0) * 1000 : null, activeAttemptId: startingNewAttempt ? `attempt-${Date.now()}-${stepKey}` : step.activeAttemptId, activeAttemptStartedAt: startingNewAttempt ? new Date().toISOString() : step.activeAttemptStartedAt, bpmAtStart: startingNewAttempt ? getStepEffectiveBpm(stepNumber) : step.bpmAtStart, modeAtStart: startingNewAttempt ? selectedMode : step.modeAtStart } };
     });
   };
 
@@ -2193,7 +2208,8 @@ export default function App() {
         remainingSeconds: prev[stepKey].durationMinutes * 60,
         elapsedSeconds: 0,
         activeAttemptId: null,
-        activeAttemptStartedAt: null
+        activeAttemptStartedAt: null,
+        timerEndAt: null
       }
     }));
   };
@@ -2208,7 +2224,8 @@ export default function App() {
         remainingSeconds: prev[stepKey].durationMinutes * 60,
         elapsedSeconds: 0,
         activeAttemptId: null,
-        activeAttemptStartedAt: null
+        activeAttemptStartedAt: null,
+        timerEndAt: null
       }
     }));
   };
@@ -2221,7 +2238,8 @@ export default function App() {
         durationMinutes: mins,
         remainingSeconds: mins * 60,
         elapsedSeconds: 0,
-        isTimerRunning: false
+        isTimerRunning: false,
+        timerEndAt: null
       }
     }));
   };
