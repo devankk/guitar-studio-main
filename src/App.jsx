@@ -804,6 +804,7 @@ export default function App() {
   const [practiceAttempts, setPracticeAttempts] = useState(() => {
     try { return JSON.parse(localStorage.getItem('gps_practice_attempts') || '[]'); } catch { return []; }
   });
+  const [undoDeleteAction, setUndoDeleteAction] = useState(null);
   const [currentPracticeDayId, setCurrentPracticeDayId] = useState(() => `practice-${Date.now()}`);
 
   const [customTagInput, setCustomTagInput] = useState('');
@@ -2352,6 +2353,8 @@ export default function App() {
   };
 
   const handleDeleteExercise = (id) => {
+    const deleted = exercises.find(ex => ex.id === id);
+    if (deleted) setUndoDeleteAction({ type: 'exercise', item: deleted });
     setExercises(prev => {
       const updated = prev.filter(ex => ex.id !== id);
       try {
@@ -2371,6 +2374,8 @@ export default function App() {
   };
 
   const handleDeleteSession = (sessionId) => {
+    const deleted = historySessions.find(session => session.id === sessionId);
+    if (deleted) setUndoDeleteAction({ type: 'session', item: deleted });
     setHistorySessions(prev => {
       const updated = prev.filter(s => s.id !== sessionId);
       try {
@@ -2387,6 +2392,30 @@ export default function App() {
       });
       return updated;
     });
+  };
+
+  const undoDelete = () => {
+    if (!undoDeleteAction?.item) return;
+    if (undoDeleteAction.type === 'exercise') {
+      setExercises(prev => {
+        const restored = prev.some(ex => ex.id === undoDeleteAction.item.id)
+          ? prev
+          : [undoDeleteAction.item, ...prev];
+        try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(restored)); } catch {}
+        syncToCloud({ userId: activeUserId, profileName: userProfiles[activeUserId]?.name, historySessions, exercises: restored, practicedCalendarDays, updatedAt: new Date().toISOString() });
+        return restored;
+      });
+    } else if (undoDeleteAction.type === 'session') {
+      setHistorySessions(prev => {
+        const restored = prev.some(session => session.id === undoDeleteAction.item.id)
+          ? prev
+          : [undoDeleteAction.item, ...prev];
+        try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(restored)); } catch {}
+        syncToCloud({ userId: activeUserId, profileName: userProfiles[activeUserId]?.name, historySessions: restored, exercises, practicedCalendarDays, updatedAt: new Date().toISOString() });
+        return restored;
+      });
+    }
+    setUndoDeleteAction(null);
   };
 
   const loadExerciseIntoRoutine = (ex) => {
@@ -6019,6 +6048,16 @@ export default function App() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {undoDeleteAction && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 rounded-xl border border-white/10 bg-[#15151D] px-4 py-3 shadow-2xl">
+          <span className="text-xs text-white">{undoDeleteAction.type === 'exercise' ? 'Exercise deleted' : 'Practice log deleted'}</span>
+          <button type="button" onClick={undoDelete} className="rounded-lg px-3 py-1.5 text-xs font-bold text-white" style={{ backgroundColor: currentTheme.primary }}>
+            UNDO
+          </button>
+          <button type="button" onClick={() => setUndoDeleteAction(null)} className="text-xs text-[#92929F] hover:text-white">&times;</button>
         </div>
       )}
 
