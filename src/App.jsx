@@ -27,7 +27,12 @@ const FONT_STYLES = `
     width: 100%;
     min-height: 100%;
     min-height: 100dvh;
-    background-color: #08080C;
+    background-color: #060609;
+    background-image: 
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.12), transparent),
+      radial-gradient(circle at 10% 20%, rgba(250, 30, 78, 0.04), transparent),
+      radial-gradient(circle at 90% 80%, rgba(0, 240, 255, 0.03), transparent);
+    background-attachment: fixed;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -40,34 +45,34 @@ const FONT_STYLES = `
   img, video, canvas, svg { max-width: 100%; }
   button, a, input, textarea, select { touch-action: manipulation; }
 
+  /* Studio Glassmorphism & High-tech Borders */
+  .studio-glass {
+    background: rgba(18, 18, 26, 0.72) !important;
+    backdrop-filter: blur(16px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important;
+  }
+
+  .studio-glass-hover:hover {
+    background: rgba(24, 24, 35, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.45) !important;
+  }
+
+  /* Glow Effects */
+  .glow-text-primary {
+    text-shadow: 0 0 20px currentColor, 0 0 40px currentColor;
+  }
+
+  .glow-box-primary {
+    box-shadow: 0 0 25px var(--theme-glow, rgba(250, 30, 78, 0.3));
+  }
+
   .font-gx-display {
     font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
-    letter-spacing: -0.02em;
-  }
-
-  .font-gx-num {
-    font-family: 'Rajdhani', 'JetBrains Mono', monospace;
-    font-feature-settings: "tnum" 1, "zero" 1;
-    letter-spacing: 0.02em;
-  }
-
-  .font-gx-code {
-    font-family: 'JetBrains Mono', monospace;
-    font-feature-settings: "tnum" 1;
-  }
-
-  .text-white { color: #F8FAFC !important; }
-  .text-\[#92929F\] { color: #94A3B8 !important; }
-
-  .font-gx-body {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    letter-spacing: -0.01em;
-  }
-
-  /* Clean UI typography: reserve monospace for values, not every label. */
-  .font-mono {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    letter-spacing: -0.012em;
+    letter-spacing: -0.025em;
   }
 
   .font-gx-num {
@@ -84,6 +89,19 @@ const FONT_STYLES = `
     line-height: 1.45;
   }
 
+  .text-white { color: #F8FAFC !important; }
+  .text-\[#92929F\] { color: #94A3B8 !important; }
+
+  .font-gx-body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.015em;
+  }
+
   input, textarea, select, button {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
@@ -94,35 +112,47 @@ const FONT_STYLES = `
   }
 
   button, input, textarea, select {
-    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background-color 160ms ease;
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   input:focus, textarea:focus, select:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.12), 0 0 20px rgba(255,255,255,0.05);
   }
 
   ::selection {
-    background: rgba(255,255,255,0.16);
+    background: rgba(250, 30, 78, 0.3);
+    color: #FFF;
+  }
+
+  /* Custom Sleek Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #08080C;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
   }
 
   @keyframes app-content-enter {
-    from { opacity: 0; transform: translateY(5px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
-  @keyframes dropdown-enter {
-    from { opacity: 0; transform: translateY(-5px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
   }
 
   .animate-in {
-    animation: dropdown-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    transform-origin: top right;
-  }
-
-  select:focus {
-    transition: box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+    animation: app-content-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   main > * { animation: app-content-enter 220ms ease-out both; }
@@ -135,24 +165,15 @@ const FONT_STYLES = `
 
   @media (max-width: 767px) {
     main { width: 100%; max-width: 100%; overflow-x: hidden; }
-    button { min-height: 36px; }
+    button { min-height: 38px; }
     input, textarea, select { max-width: 100%; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-    button:hover, [role="button"]:hover { transform: none; }
-  }
-
-  @media (min-width: 768px) {
-    header > div:last-child { gap: 0.35rem; }
-    header > div:last-child > button { white-space: nowrap; }
   }
 
   /* Fluid typography scaling for extreme viewports */
   .text-fluid-bpm {
     font-size: clamp(3.8rem, 9.5vw, 9.5rem);
     line-height: 0.95;
+    text-shadow: 0 0 35px var(--bpm-glow, rgba(250,30,78,0.25));
   }
 
   .text-fluid-title {
@@ -3578,7 +3599,7 @@ export default function App() {
         </div>
 
         {/* Desktop Navigation Tabs */}
-        <nav className="hidden md:flex items-center gap-0.5 bg-[#15151D] p-0.5 rounded-xl border border-white/5 flex-1 justify-center max-w-[760px]">
+        <nav className="hidden md:flex items-center gap-1 studio-glass p-1 rounded-2xl border border-white/10 flex-1 justify-center max-w-[780px] shadow-lg">
           {[
             { id: 'daily', label: 'Daily Practice', icon: Activity },
             { id: 'metronome', label: 'Metronome', icon: Clock },
@@ -3593,20 +3614,26 @@ export default function App() {
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className="flex items-center gap-1.5 px-2.5 lg:px-3 py-1.5 rounded-lg text-[11px] lg:text-xs font-semibold font-gx-display transition-all relative overflow-hidden"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] lg:text-xs font-bold font-gx-display transition-all duration-200 relative overflow-hidden active:scale-95"
                 style={{
-                  backgroundColor: isActive ? '#1B1B25' : 'transparent',
-                  color: isActive ? currentTheme.primary : '#92929F',
-                  boxShadow: isActive ? `0 0 12px ${currentTheme.glowSubtle}` : 'none'
+                  backgroundColor: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  boxShadow: isActive ? `0 0 16px ${currentTheme.glowSubtle}` : 'none'
                 }}
               >
                 {isActive && (
                   <span
-                    className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full"
-                    style={{ backgroundColor: currentTheme.primary }}
+                    className="absolute bottom-0 left-3 right-3 h-[2px] rounded-full"
+                    style={{
+                      backgroundColor: currentTheme.primary,
+                      boxShadow: `0 0 10px ${currentTheme.primary}`
+                    }}
                   />
                 )}
-                <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
+                <Icon
+                  className="w-3.5 h-3.5 lg:w-4 lg:h-4 transition-transform duration-200 group-hover:scale-110"
+                  style={{ color: isActive ? currentTheme.primary : 'inherit' }}
+                />
                 {tab.label}
               </button>
             );
@@ -3616,14 +3643,14 @@ export default function App() {
         {/* Profile Switcher, Sync & GX Themes */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Quick Header Practice Stopwatch Widget */}
-          <div className="order-1 hidden xl:flex items-center gap-2 bg-[#15151D] border border-white/10 px-2.5 py-1 rounded-xl">
-            <Timer className={`w-3.5 h-3.5 ${isManualTimerRunning ? 'text-[#10B981] animate-pulse' : 'text-[#92929F]'}`} />
+          <div className="order-1 hidden xl:flex items-center gap-2 studio-glass px-3 py-1.5 rounded-xl border border-white/10 shadow-sm">
+            <Timer className={`w-3.5 h-3.5 ${isManualTimerRunning ? 'text-[#10B981] animate-pulse' : 'text-[#94A3B8]'}`} />
             <span className="font-mono font-bold text-xs text-white tracking-wider">
               {formatStopwatchTime(todayManualPracticeSeconds + manualPracticeSeconds)}
             </span>
             <button
               onClick={handleToggleManualTimer}
-              className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded transition-all"
+              className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md transition-all active:scale-95 shadow-sm"
               style={{
                 backgroundColor: isManualTimerRunning ? '#EF4444' : '#10B981',
                 color: '#FFFFFF'
@@ -3634,7 +3661,7 @@ export default function App() {
             {manualPracticeSeconds > 0 && !isManualTimerRunning && (
               <button
                 onClick={handleFinishManualSession}
-                className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded text-white"
+                className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md text-white transition-all active:scale-95 shadow-sm"
                 style={{ backgroundColor: currentTheme.primary }}
               >
                 LOG
@@ -3645,7 +3672,7 @@ export default function App() {
           {/* User Profile Switcher Button */}
           <button
             onClick={() => setIsProfileModalOpen(true)}
-            className="order-4 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-[#15151D] border border-white/10 hover:border-white/20 text-white flex items-center gap-1.5 transition-all text-xs"
+            className="order-4 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl studio-glass studio-glass-hover text-white flex items-center gap-1.5 transition-all text-xs"
             title="Switch User Profile / Lock Studio"
           >
             <div
@@ -3663,14 +3690,14 @@ export default function App() {
             {userProfiles[activeUserId]?.pin ? (
               <Lock className="w-3 h-3 text-[#10B981]" />
             ) : (
-              <Unlock className="w-3 h-3 text-[#92929F]" />
+              <Unlock className="w-3 h-3 text-[#94A3B8]" />
             )}
           </button>
 
           {/* Quick Lock / Sign Out Button */}
           <button
             onClick={handleLockStudio}
-            className="order-5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-[#15151D] border border-white/10 hover:border-[#EF4444]/40 hover:text-[#EF4444] text-[#92929F] flex items-center gap-1.5 transition-all text-xs"
+            className="order-5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl studio-glass hover:border-[#EF4444]/50 hover:text-[#EF4444] text-[#94A3B8] flex items-center gap-1.5 transition-all text-xs active:scale-95"
             title="Lock Studio (Sign Out)"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -3680,14 +3707,14 @@ export default function App() {
           <div className="relative order-3">
             <button
               onClick={() => setIsThemePickerOpen(!isThemePickerOpen)}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-[#15151D] border border-white/10 hover:border-white/20 text-[#92929F] hover:text-white flex items-center gap-1.5 transition-all text-xs"
+              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl studio-glass studio-glass-hover text-[#94A3B8] hover:text-white flex items-center gap-1.5 transition-all text-xs active:scale-95"
               title="Change Neon Accent Theme"
             >
               <span
                 className="w-3 h-3 rounded-full transition-transform hover:scale-110"
                 style={{
                   backgroundColor: currentTheme.primary,
-                  boxShadow: `0 0 8px ${currentTheme.primary}`
+                  boxShadow: `0 0 10px ${currentTheme.primary}`
                 }}
               />
               <span className="hidden lg:inline text-[11px] font-gx-display font-bold">{currentTheme.name}</span>
