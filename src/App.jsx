@@ -1531,24 +1531,33 @@ export default function App() {
         ['step1', 'step2', 'step3', 'step4'].forEach(stepKey => {
           if (next[stepKey].isTimerRunning) {
             changed = true;
+            const nextElapsedSeconds = (next[stepKey].elapsedSeconds || 0) + 1;
+            const nextRemainingSeconds = Math.max(0, (next[stepKey].remainingSeconds || 0) - 1);
             next[stepKey] = {
               ...next[stepKey],
-              elapsedSeconds: (next[stepKey].elapsedSeconds || 0) + 1
+              elapsedSeconds: nextElapsedSeconds,
+              remainingSeconds: nextRemainingSeconds
             };
 
-            if (next[stepKey].remainingSeconds > 0) {
-              next[stepKey].remainingSeconds -= 1;
-            } else {
+            // Complete exactly when the countdown reaches zero. The old
+            // check waited for one extra heartbeat, so the attempt was not
+            // finalized at the visible timer end.
+            if (nextRemainingSeconds === 0) {
               const completedAttemptId = next[stepKey].activeAttemptId;
+              const completedStartedAt = next[stepKey].activeAttemptStartedAt;
+              const completedBpm = next[stepKey].bpmAtStart || next[stepKey].bpm || null;
+              const completedMode = next[stepKey].modeAtStart || 'standard';
               next[stepKey] = {
                 ...next[stepKey],
                 isTimerRunning: false,
                 isCompleted: true,
-                activeAttemptId: null
+                remainingSeconds: next[stepKey].durationMinutes * 60,
+                elapsedSeconds: 0,
+                activeAttemptId: null,
+                activeAttemptStartedAt: null
               };
-              const completed = next[stepKey];
-              if (completedAttemptId && completed.elapsedSeconds > 0) {
-                const record = { id: completedAttemptId, userId: activeUserId, practiceDayId: currentPracticeDayId, date: new Date().toISOString().slice(0, 10), stepNumber: Number(stepKey.replace('step', '')), stepName: stepKey, startedAt: completed.activeAttemptStartedAt, endedAt: new Date().toISOString(), actualElapsedSeconds: Math.round(completed.elapsedSeconds), configuredDurationSeconds: completed.durationMinutes * 60, bpm: completed.bpmAtStart || completed.bpm || null, mode: completed.modeAtStart || 'standard', status: 'completed' };
+              if (completedAttemptId && nextElapsedSeconds > 0) {
+                const record = { id: completedAttemptId, userId: activeUserId, practiceDayId: currentPracticeDayId, date: new Date().toISOString().slice(0, 10), stepNumber: Number(stepKey.replace('step', '')), stepName: stepKey, startedAt: completedStartedAt, endedAt: new Date().toISOString(), actualElapsedSeconds: Math.round(nextElapsedSeconds), configuredDurationSeconds: next[stepKey].durationMinutes * 60, bpm: completedBpm, mode: completedMode, status: 'completed' };
                 setPracticeAttempts(prev => { const nextAttempts = [...prev.filter(a => a.id !== record.id), record]; try { localStorage.setItem('gps_practice_attempts', JSON.stringify(nextAttempts)); } catch {} return nextAttempts; });
               }
               finishedStep = stepKey;
@@ -2186,7 +2195,17 @@ export default function App() {
 
   const stopTimer = (stepKey) => {
     finalizePracticeAttempt(stepKey, 'manually_stopped');
-    setPracticeSession(prev => ({ ...prev, [stepKey]: { ...prev[stepKey], isTimerRunning: false, activeAttemptId: null, activeAttemptStartedAt: null } }));
+    setPracticeSession(prev => ({
+      ...prev,
+      [stepKey]: {
+        ...prev[stepKey],
+        isTimerRunning: false,
+        remainingSeconds: prev[stepKey].durationMinutes * 60,
+        elapsedSeconds: 0,
+        activeAttemptId: null,
+        activeAttemptStartedAt: null
+      }
+    }));
   };
 
   const handleTimerDurationChange = (stepKey, mins) => {
