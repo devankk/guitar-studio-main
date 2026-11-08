@@ -997,6 +997,7 @@ export default function App() {
 
   // Load User Data based on Active User ID (Absolute Data Isolation)
   const loadUserData = (uid) => {
+    let cloudKeyToFetch = null;
     try {
       const savedProfiles = localStorage.getItem('gps_user_profiles');
       if (savedProfiles) {
@@ -1013,7 +1014,7 @@ export default function App() {
         setUserProfiles(merged);
         if (merged[uid]?.syncKey) {
           setSyncKey(merged[uid].syncKey);
-          fetchCloudData(merged[uid].syncKey);
+          cloudKeyToFetch = merged[uid].syncKey;
         } else {
           const generatedKey = `g_${(merged[uid]?.name || uid).toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.random().toString(36).substring(2, 6)}`;
           const updatedWithKey = {
@@ -1025,7 +1026,7 @@ export default function App() {
           try {
             localStorage.setItem('gps_user_profiles', JSON.stringify(updatedWithKey));
           } catch {}
-          fetchCloudData(generatedKey);
+          cloudKeyToFetch = generatedKey;
         }
       }
 
@@ -1051,6 +1052,13 @@ export default function App() {
       const savedCal = localStorage.getItem(`gps_practiced_dates_${uid}`);
       if (savedCal) setPracticedCalendarDays(JSON.parse(savedCal));
       else setPracticedCalendarDays([]);
+
+      // Fetch only after local profile/session data has been restored. This
+      // prevents the slower local-state initialization from overwriting a
+      // newer snapshot created on the other device during a refresh.
+      if (cloudKeyToFetch) {
+        setTimeout(() => fetchCloudData(cloudKeyToFetch), 0);
+      }
     } catch {
       // LocalStorage access fallback
     }
