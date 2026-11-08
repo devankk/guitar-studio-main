@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { db, ref, set, onValue, ensureAuth } from './firebase';
 import {
   Play, Pause, Plus, Minus, RotateCcw, Volume2, Settings,
   Calendar, Check, ChevronRight, Video, Camera, BarChart2,
@@ -1115,35 +1116,62 @@ export default function App() {
     }
   }, []);
 
-  // Automatic continuous background synchronization between PC and Phone
+  // Realtime Firebase live synchronization listener
   useEffect(() => {
     if (!isAuthenticated || !activeUserId) return undefined;
 
-    // 1. Immediate sync on load / user authentication
-    fetchCloudData(null, true);
+    let unsubscribe = null;
+    let isMounted = true;
 
-    // 2. Sync whenever user unlocks phone / returns to tab
-    const handleFocus = () => {
-      fetchCloudData(null, true);
-    };
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        fetchCloudData(null, true);
-      }
-    };
+    ensureAuth().then(() => {
+      if (!isMounted) return;
+      const userRef = ref(db, `users/${activeUserId}`);
+      unsubscribe = onValue(userRef, (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
 
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('visibilitychange', handleVisibility);
+        if (Array.isArray(data.historySessions)) {
+          let localHistory = [];
+          try { localHistory = JSON.parse(localStorage.getItem(`gps_history_${activeUserId}`) || '[]'); } catch {}
+          const mergedHistory = [...data.historySessions, ...localHistory]
+            .filter((session, index, all) => session?.id && all.findIndex(item => item?.id === session.id) === index);
+          setHistorySessions(mergedHistory);
+          try { localStorage.setItem(`gps_history_${activeUserId}`, JSON.stringify(mergedHistory)); } catch {}
+        }
 
-    // 3. Periodic automatic background poll every 15 seconds so logs appear in real-time
-    const autoSyncInterval = setInterval(() => {
-      fetchCloudData(null, true);
-    }, 15000);
+        if (Array.isArray(data.exercises)) {
+          let localExercises = [];
+          try { localExercises = JSON.parse(localStorage.getItem(`gps_exercises_${activeUserId}`) || '[]'); } catch {}
+          const mergedExercises = [...data.exercises, ...localExercises]
+            .filter((exercise, index, all) => exercise?.id && all.findIndex(item => item?.id === exercise.id) === index);
+          setExercises(mergedExercises);
+          try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(mergedExercises)); } catch {}
+        }
+
+        if (Array.isArray(data.practicedCalendarDays)) {
+          let localCalendar = [];
+          try { localCalendar = JSON.parse(localStorage.getItem(`gps_practiced_dates_${activeUserId}`) || '[]'); } catch {}
+          const mergedCalendar = [...new Set([...data.practicedCalendarDays, ...localCalendar])];
+          setPracticedCalendarDays(mergedCalendar);
+          try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(mergedCalendar)); } catch {}
+        }
+
+        if (Array.isArray(data.manualPracticeLogs)) {
+          let localManual = [];
+          try { localManual = JSON.parse(localStorage.getItem('gps_manual_practice_logs') || '[]'); } catch {}
+          const mergedManual = [...data.manualPracticeLogs, ...localManual]
+            .filter((item, index, all) => item?.id && all.findIndex(m => m?.id === item.id) === index);
+          setManualPracticeLogs(mergedManual);
+          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(mergedManual)); } catch {}
+        }
+      }, (error) => {
+        console.warn('Firebase realtime listener notice:', error);
+      });
+    });
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('visibilitychange', handleVisibility);
-      clearInterval(autoSyncInterval);
+      isMounted = false;
+      if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, [isAuthenticated, activeUserId]);
   useEffect(() => {
@@ -1376,10 +1404,6 @@ export default function App() {
   };
 
   const syncToCloud = async (overrideData = null) => {
-    // Channel is strictly tied to the active user profile (e.g. user1, user2)
-    // so PC and Phone ALWAYS talk to the exact same room regardless of previously saved keys in localStorage
-    const cleanKey = `wgs_studio_${activeUserId}`;
-
     setIsSyncing(true);
     setSyncStatus(null);
 
@@ -1394,23 +1418,15 @@ export default function App() {
     };
 
     try {
-      const res = await fetch(`https://ntfy.sh/${cleanKey}`, {
-        method: 'POST',
-        headers: {
-          'Title': `WGS Sync - ${userProfiles[activeUserId]?.name || activeUserId}`
-        },
-        body: JSON.stringify(payload)
-      });
+      await ensureAuth();
+      const userRef = ref(db, `users/${activeUserId}`);
+      await set(userRef, payload);
 
-      if (res.ok) {
-        setSyncStatus('synced');
-        setTimeout(() => setSyncStatus(null), 3500);
-        audioEngine.playUiSound('step');
-      } else {
-        throw new Error('Sync failed with status ' + res.status);
-      }
+      setSyncStatus('synced');
+      setTimeout(() => setSyncStatus(null), 3500);
+      audioEngine.playUiSound('step');
     } catch (err) {
-      console.error('Cloud Sync Upload Error:', err);
+      console.error('Firebase Sync Upload Error:', err);
       setSyncStatus('error');
       setTimeout(() => setSyncStatus(null), 4000);
     } finally {
@@ -1419,36 +1435,14 @@ export default function App() {
   };
 
   const fetchCloudData = async (keyToFetch = null, silent = false) => {
-    const cleanKey = `wgs_studio_${activeUserId}`;
-
     setIsSyncing(true);
     if (!silent) setSyncStatus(null);
 
     try {
-      let fetchedData = null;
-      try {
-        const ntfyRes = await fetch(`https://ntfy.sh/${cleanKey}/json?poll=1&since=all`);
-        if (ntfyRes.ok) {
-          const lines = (await ntfyRes.text()).trim().split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-              const parsedLine = JSON.parse(lines[i]);
-              if (parsedLine.message) {
-                let inner = null;
-                try {
-                  inner = JSON.parse(parsedLine.message);
-                } catch {
-                  inner = parsedLine.message;
-                }
-                if (inner && typeof inner === 'object' && (inner.historySessions || inner.exercises || inner.manualPracticeLogs)) {
-                  fetchedData = inner;
-                  break;
-                }
-              }
-            } catch {}
-          }
-        }
-      } catch {}
+      await ensureAuth();
+      const userRef = ref(db, `users/${activeUserId}`);
+      const snapshot = await get(userRef);
+      const fetchedData = snapshot.val();
 
       if (fetchedData) {
         if (Array.isArray(fetchedData.historySessions)) {
@@ -1494,13 +1488,12 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error('Cloud Sync Fetch Error:', err);
+      console.error('Firebase Fetch Error:', err);
       if (!silent) setSyncStatus('error');
     } finally {
       setIsSyncing(false);
     }
   };
-
   const changeTheme = (key) => {
     if (GX_THEMES[key]) {
       setCurrentThemeKey(key);
@@ -6088,15 +6081,15 @@ export default function App() {
         </div>
       )}
 
-      {/* CLOUD DEVICE SYNC MODAL */}
+      {/* CLOUD DEVICE SYNC STATUS MODAL */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <div className="bg-[#15151D] border border-white/10 rounded-2xl p-5 sm:p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-white/5">
               <div className="flex items-center gap-2">
-                <Cloud className="w-5 h-5 text-[#3B82F6]" />
+                <Cloud className="w-5 h-5 text-[#10B981]" />
                 <h3 className="text-base sm:text-lg font-bold text-white font-gx-display">
-                  Live Cloud Sync ({userProfiles[activeUserId]?.name})
+                  Live Firebase Cloud Sync
                 </h3>
               </div>
               <button onClick={() => setIsSyncModalOpen(false)} className="text-[#92929F] hover:text-white text-lg p-1">
@@ -6104,54 +6097,31 @@ export default function App() {
               </button>
             </div>
 
-            <p className="text-xs text-[#92929F] leading-relaxed">
-              Use this Sync Key to connect <strong>{userProfiles[activeUserId]?.name}</strong> between your PC and phone. Both devices will share the exact same practice logs, tempos, and calendar!
-            </p>
-
-            <div className="bg-[#101016] p-3 rounded-xl border border-white/10 space-y-2">
-              <span className="text-[10px] text-[#92929F] uppercase font-bold block">
-                {userProfiles[activeUserId]?.name}'s Sync Key
-              </span>
-              <div className="flex items-center justify-between gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. shred-master-77"
-                  value={userProfiles[activeUserId]?.syncKey || ''}
-                  onChange={(e) => {
-                    const keyVal = e.target.value.toLowerCase().replace(/\s+/g, '-');
-                    const updated = {
-                      ...userProfiles,
-                      [activeUserId]: { ...userProfiles[activeUserId], syncKey: keyVal }
-                    };
-                    saveUserProfiles(updated);
-                  }}
-                  className="bg-[#1B1B25] border border-white/10 rounded-lg px-2.5 py-1.5 font-mono font-bold text-xs text-white focus:outline-none w-full"
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(userProfiles[activeUserId]?.syncKey || '');
-                    audioEngine.playUiSound('step');
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-[#1B1B25] text-xs font-bold text-[#92929F] hover:text-white border border-white/5 whitespace-nowrap"
-                >
-                  Copy Key
-                </button>
+            <div className="bg-[#101016] p-3.5 rounded-xl border border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#92929F] font-bold">Sync Status</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse"></span>
+                  Realtime Active
+                </span>
+              </div>
+              <div className="text-[11px] text-[#92929F] leading-relaxed">
+                Active Profile: <strong className="text-white">{userProfiles[activeUserId]?.name}</strong>
               </div>
             </div>
+
+            <p className="text-xs text-[#92929F] leading-relaxed">
+              Your guitar studio is connected to Google Firebase. Any practice logged on your phone or PC syncs <strong className="text-white">automatically and instantly</strong> without needing manual keys or buttons.
+            </p>
 
             {syncStatus === 'synced' && (
               <div className="bg-[#10B981]/15 border border-[#10B981]/30 text-[#10B981] px-3 py-2 rounded-xl text-xs font-mono font-bold text-center animate-in fade-in">
                 ✓ Cloud Synchronized Successfully!
               </div>
             )}
-            {syncStatus === 'not_found' && (
-              <div className="bg-[#F59E0B]/15 border border-[#F59E0B]/30 text-[#F59E0B] px-3 py-2 rounded-xl text-xs font-mono font-bold text-center animate-in fade-in">
-                ⚠ No cloud data found for this key yet. Click "Upload to Cloud" on your PC first!
-              </div>
-            )}
             {syncStatus === 'error' && (
               <div className="bg-[#EF4444]/15 border border-[#EF4444]/30 text-[#EF4444] px-3 py-2 rounded-xl text-xs font-mono font-bold text-center animate-in fade-in">
-                ✕ Network error syncing. Please check your internet connection.
+                ✕ Sync error. Make sure Anonymous Sign-in is enabled in Firebase.
               </div>
             )}
 
@@ -6162,7 +6132,7 @@ export default function App() {
                 className="flex-1 py-2.5 rounded-xl bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
               >
                 <Upload className="w-3.5 h-3.5" />
-                {isSyncing ? 'Uploading...' : 'Upload to Cloud'}
+                {isSyncing ? 'Syncing...' : 'Force Sync to Cloud'}
               </button>
 
               <button
@@ -6171,17 +6141,8 @@ export default function App() {
                 className="flex-1 py-2.5 rounded-xl bg-[#1B1B25] border border-white/10 hover:border-white/20 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
               >
                 <RefreshCcw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                {isSyncing ? 'Fetching...' : 'Download to Phone'}
+                {isSyncing ? 'Checking...' : 'Refresh from Cloud'}
               </button>
-            </div>
-
-            <div className="pt-2 border-t border-white/5 text-[11px] text-[#92929F]">
-              <strong className="text-white">How to connect PC $\leftrightarrow$ Phone in 3 steps:</strong>
-              <ol className="list-decimal list-inside space-y-1 mt-1 text-[10px] sm:text-[11px]">
-                <li>On your <strong>PC</strong>: Click <strong>Sync</strong> $\rightarrow$ click <strong>Upload to Cloud</strong>.</li>
-                <li>Copy or type the exact same <strong>Sync Key</strong> on your phone.</li>
-                <li>On your <strong>Phone</strong>: Tap <strong>Download to Phone</strong>.</li>
-              </ol>
             </div>
           </div>
         </div>
