@@ -2269,7 +2269,17 @@ export default function App() {
     if (isPlaying) {
       audioEngine.setBpm(clamped);
     }
+    // Standard practice BPM is the shared baseline for both training modes.
+    setSpeedConfig(prev => ({ ...prev, startBpm: Math.min(clamped, prev.endBpm) }));
+    setRatiosConfig(prev => ({ ...prev, bpm: clamped }));
   };
+
+  useEffect(() => {
+    // Keep the Master Standard Metronome BPM as the baseline for new Speed
+    // and Ratios sessions without changing their other configuration.
+    setSpeedConfig(prev => prev.startBpm === bpm ? prev : { ...prev, startBpm: Math.min(bpm, prev.endBpm) });
+    setRatiosConfig(prev => prev.bpm === bpm ? prev : { ...prev, bpm });
+  }, [bpm]);
 
   const handleCreateExercise = (e) => {
     e?.preventDefault();
@@ -2352,9 +2362,10 @@ export default function App() {
   };
 
   const loadExerciseIntoRoutine = (ex) => {
-    const comfortTempo = Math.round(ex.currentBpm * 0.75);
-    const edgeTempo = ex.currentBpm;
-    const burstTempo = Math.min(320, ex.currentBpm + 15);
+    const historicalCurrentBpm = getExerciseHistoricalMaxBpm(ex);
+    const comfortTempo = Math.round(historicalCurrentBpm * 0.75);
+    const edgeTempo = historicalCurrentBpm;
+    const burstTempo = Math.min(320, historicalCurrentBpm + 15);
 
     let defaultStep1Focus = ['Relaxation', 'Synchronization'];
     let defaultStep2Focus = ['Note Clarity'];
@@ -2419,6 +2430,37 @@ export default function App() {
     }
     return practiceSession[stepKey]?.measuredBpm || practiceSession[stepKey]?.bpm || 80;
   };
+
+  const getExerciseHistoricalMaxBpm = (exercise) => {
+    const values = [Number(exercise?.currentBpm) || 0];
+    historySessions
+      .filter(session => session.exerciseId === exercise?.id)
+      .forEach(session => {
+        [session.comfortBpm, session.edgeBpm, session.burstBpm].forEach(value => values.push(Number(value) || 0));
+        (session.practiceAttempts || []).forEach(attempt => values.push(Number(attempt.bpm) || 0));
+      });
+    practiceAttempts
+      .filter(attempt => attempt.userId === activeUserId && attempt.exerciseId === exercise?.id)
+      .forEach(attempt => values.push(Number(attempt.bpm) || 0));
+    return Math.max(...values);
+  };
+
+  useEffect(() => {
+    if (!historySessions.length || !exercises.length) return;
+    let changed = false;
+    const recalculated = exercises.map(ex => {
+      const highest = getExerciseHistoricalMaxBpm(ex);
+      if (highest > (Number(ex.currentBpm) || 0)) {
+        changed = true;
+        return { ...ex, currentBpm: highest, bestBurstBpm: Math.max(Number(ex.bestBurstBpm) || 0, highest) };
+      }
+      return ex;
+    });
+    if (changed) {
+      setExercises(recalculated);
+      try { localStorage.setItem(`gps_exercises_${activeUserId}`, JSON.stringify(recalculated)); } catch {}
+    }
+  }, [historySessions, activeUserId]);
 
   const hasCurrentStepPractice = (stepNumber) => {
     const step = practiceSession[`step${stepNumber}`];
@@ -2492,10 +2534,13 @@ export default function App() {
     if (practiceSession.selectedExerciseId && practiceSession.selectedExerciseId !== 'custom') {
       updatedExercises = exercises.map(ex => {
         if (ex.id === practiceSession.selectedExerciseId) {
+          const sessionBpms = [newSession.comfortBpm, newSession.edgeBpm, newSession.burstBpm]
+            .map(value => Number(value) || 0);
+          const highestRecordedBpm = Math.max(Number(ex.currentBpm) || 0, ...sessionBpms);
           return {
             ...ex,
-            currentBpm: Math.max(ex.currentBpm, practiceSession.step2.bpm),
-            bestBurstBpm: Math.max(ex.bestBurstBpm || 0, practiceSession.step3.bpm),
+            currentBpm: highestRecordedBpm,
+            bestBurstBpm: Math.max(ex.bestBurstBpm || 0, ...sessionBpms),
             sessionsCount: (ex.sessionsCount || 0) + 1,
             lastPracticed: todayStr
           };
