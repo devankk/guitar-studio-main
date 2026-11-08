@@ -697,8 +697,8 @@ export default function App() {
   // --------------------------------------------------------------------------
   const [activeUserId, setActiveUserId] = useState('user1'); // 'user1' (Master Admin) | 'user2' | 'user3'...
   const [userProfiles, setUserProfiles] = useState({
-    user1: { name: 'Guitarist 1 (Admin)', pin: '7779', syncKey: 'g1-sync-' + Math.random().toString(36).substring(2, 7), isAdmin: true },
-    user2: { name: 'Guitarist 2', pin: '1111', syncKey: 'g2-sync-' + Math.random().toString(36).substring(2, 7) }
+    user1: { name: 'Guitarist 1 (Admin)', pin: '7779', syncKey: 'wgs-sync-user1', isAdmin: true },
+    user2: { name: 'Guitarist 2', pin: '1111', syncKey: 'wgs-sync-user2' }
   });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -1023,7 +1023,7 @@ export default function App() {
           setSyncKey(merged[uid].syncKey);
           cloudKeyToFetch = merged[uid].syncKey;
         } else {
-          const generatedKey = `g_${(merged[uid]?.name || uid).toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.random().toString(36).substring(2, 6)}`;
+          const generatedKey = `wgs-sync-${uid}`;
           const updatedWithKey = {
             ...merged,
             [uid]: { ...merged[uid], syncKey: generatedKey }
@@ -1115,8 +1115,37 @@ export default function App() {
     }
   }, []);
 
-  // Expire the authenticated profile after exactly 24 hours, even if the
-  // webpage remains open without a refresh.
+  // Automatic continuous background synchronization between PC and Phone
+  useEffect(() => {
+    if (!isAuthenticated || !activeUserId) return undefined;
+
+    // 1. Immediate sync on load / user authentication
+    fetchCloudData(null, true);
+
+    // 2. Sync whenever user unlocks phone / returns to tab
+    const handleFocus = () => {
+      fetchCloudData(null, true);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCloudData(null, true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('visibilitychange', handleVisibility);
+
+    // 3. Periodic automatic background poll every 15 seconds so logs appear in real-time
+    const autoSyncInterval = setInterval(() => {
+      fetchCloudData(null, true);
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(autoSyncInterval);
+    };
+  }, [isAuthenticated, activeUserId]);
   useEffect(() => {
     if (!isAuthenticated) return undefined;
     const expiresAt = Number(localStorage.getItem('gps_auth_expires_at') || 0);
@@ -1347,7 +1376,7 @@ export default function App() {
   };
 
   const syncToCloud = async (overrideData = null) => {
-    const activeSyncKey = userProfiles[activeUserId]?.syncKey || syncKey || `g_${activeUserId}`;
+    const activeSyncKey = userProfiles[activeUserId]?.syncKey || syncKey || `wgs-sync-${activeUserId}`;
     if (!activeSyncKey) {
       setSyncStatus('error');
       return;
@@ -1361,6 +1390,7 @@ export default function App() {
       historySessions,
       exercises,
       practicedCalendarDays,
+      manualPracticeLogs,
       updatedAt: new Date().toISOString()
     };
 
@@ -1370,7 +1400,6 @@ export default function App() {
       const res = await fetch(`https://ntfy.sh/${cleanKey}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Title': `WGS Sync - ${userProfiles[activeUserId]?.name || activeUserId}`
         },
         body: JSON.stringify(payload)
@@ -1392,29 +1421,34 @@ export default function App() {
     }
   };
 
-  const fetchCloudData = async (keyToFetch = null) => {
-    const rawKey = keyToFetch || userProfiles[activeUserId]?.syncKey || syncKey || `g_${activeUserId}`;
+  const fetchCloudData = async (keyToFetch = null, silent = false) => {
+    const rawKey = keyToFetch || userProfiles[activeUserId]?.syncKey || syncKey || `wgs-sync-${activeUserId}`;
     if (!rawKey) {
-      setSyncStatus('error');
+      if (!silent) setSyncStatus('error');
       return;
     }
     setIsSyncing(true);
-    setSyncStatus(null);
+    if (!silent) setSyncStatus(null);
 
     const cleanKey = `wgs_${activeUserId}_${rawKey.replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
     try {
       let fetchedData = null;
       try {
-        const ntfyRes = await fetch(`https://ntfy.sh/${cleanKey}/json?poll=1`);
+        const ntfyRes = await fetch(`https://ntfy.sh/${cleanKey}/json?poll=1&since=all`);
         if (ntfyRes.ok) {
           const lines = (await ntfyRes.text()).trim().split('\n');
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const parsedLine = JSON.parse(lines[i]);
               if (parsedLine.message) {
-                const inner = JSON.parse(parsedLine.message);
-                if (inner.historySessions || inner.exercises) {
+                let inner = null;
+                try {
+                  inner = JSON.parse(parsedLine.message);
+                } catch {
+                  inner = parsedLine.message;
+                }
+                if (inner && typeof inner === 'object' && (inner.historySessions || inner.exercises || inner.manualPracticeLogs)) {
                   fetchedData = inner;
                   break;
                 }
@@ -1423,17 +1457,6 @@ export default function App() {
           }
         }
       } catch {}
-
-      if (!fetchedData) {
-        const res = await fetch(`https://api.restful-api.dev/objects`);
-        if (res.ok) {
-          const list = await res.json();
-          const found = Array.isArray(list) ? list.filter(item => item.name === cleanKey).pop() : null;
-          if (found && found.data) {
-            fetchedData = found.data;
-          }
-        }
-      }
 
       if (fetchedData) {
         if (Array.isArray(fetchedData.historySessions)) {
@@ -1459,16 +1482,28 @@ export default function App() {
           setPracticedCalendarDays(mergedCalendar);
           try { localStorage.setItem(`gps_practiced_dates_${activeUserId}`, JSON.stringify(mergedCalendar)); } catch {}
         }
-        setSyncStatus('synced');
-        setTimeout(() => setSyncStatus(null), 3500);
-        audioEngine.playUiSound('step');
+        if (Array.isArray(fetchedData.manualPracticeLogs)) {
+          let localManual = [];
+          try { localManual = JSON.parse(localStorage.getItem('gps_manual_practice_logs') || '[]'); } catch {}
+          const mergedManual = [...fetchedData.manualPracticeLogs, ...localManual]
+            .filter((item, index, all) => item?.id && all.findIndex(m => m?.id === item.id) === index);
+          setManualPracticeLogs(mergedManual);
+          try { localStorage.setItem('gps_manual_practice_logs', JSON.stringify(mergedManual)); } catch {}
+        }
+        if (!silent) {
+          setSyncStatus('synced');
+          setTimeout(() => setSyncStatus(null), 3500);
+          audioEngine.playUiSound('step');
+        }
       } else {
-        setSyncStatus('not_found');
-        setTimeout(() => setSyncStatus(null), 4000);
+        if (!silent) {
+          setSyncStatus('not_found');
+          setTimeout(() => setSyncStatus(null), 4000);
+        }
       }
     } catch (err) {
       console.error('Cloud Sync Fetch Error:', err);
-      setSyncStatus('error');
+      if (!silent) setSyncStatus('error');
     } finally {
       setIsSyncing(false);
     }
