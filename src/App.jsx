@@ -4861,7 +4861,12 @@ export default function App() {
                     const daySessions = groupedByDate[dateKey];
                     const verifiedDaySeconds = practiceAttempts.filter(a => a.userId === activeUserId && (a.date || a.practiceDayId) === dateKey).reduce((sum, a) => sum + Number(a.actualElapsedSeconds || 0), 0);
                     const manualDaySeconds = manualPracticeLogs.filter(log => log.userId === activeUserId && log.date === dateKey).reduce((sum, log) => sum + Number(log.actualSeconds || 0), 0);
-                    const totalDayMinutes = daySessions.reduce((sum, s) => sum + (Number(s.totalDurationMinutes) || 0), 0);
+                    const totalDaySeconds = daySessions.reduce((sum, s) => {
+                      const attempts = Array.isArray(s.practiceAttempts) ? s.practiceAttempts : [];
+                      const verified = attempts.reduce((attemptSum, attempt) => attemptSum + Number(attempt.actualElapsedSeconds || 0), 0);
+                      return sum + (verified > 0 ? verified : (Number(s.totalDurationMinutes) || 0) * 60);
+                    }, 0);
+                    const totalDayMinutes = Math.ceil(totalDaySeconds / 60);
                     const formattedDayTime = formatTotalTime(totalDayMinutes);
 
                     return (
@@ -4913,7 +4918,11 @@ export default function App() {
 
                         {/* Individual Sessions on that Date */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                          {daySessions.map(session => (
+                          {daySessions.map(session => {
+                            const sessionAttempts = Array.isArray(session.practiceAttempts) ? session.practiceAttempts : [];
+                            const verifiedSessionSeconds = sessionAttempts.reduce((sum, attempt) => sum + Number(attempt.actualElapsedSeconds || 0), 0);
+                            const exerciseDurationMinutes = Math.ceil((verifiedSessionSeconds > 0 ? verifiedSessionSeconds : (Number(session.totalDurationMinutes) || 0) * 60) / 60);
+                            return (
                             <div
                               key={session.id}
                               onClick={() => setInspectedSession(session)}
@@ -4933,7 +4942,7 @@ export default function App() {
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className="text-[11px] font-mono font-bold text-[#10B981] bg-[#10B981]/10 px-2 py-0.5 rounded-full border border-[#10B981]/20 whitespace-nowrap">
-                                      {session.totalDurationMinutes} mins
+                                      {exerciseDurationMinutes} mins
                                     </span>
                                     <button
                                       onClick={(e) => {
@@ -4975,7 +4984,8 @@ export default function App() {
                                 <p className="text-[11px] text-[#92929F] italic line-clamp-1">&ldquo;{session.notes}&rdquo;</p>
                               )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
