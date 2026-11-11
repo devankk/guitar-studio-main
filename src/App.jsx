@@ -2621,6 +2621,15 @@ export default function App() {
     const exerciseName = practiceSession.selectedExerciseName || 'Custom / Free Practice Routine';
     const exerciseCategory = practiceSession.selectedCategory || 'Technique';
 
+    const currentSessionAttempts = practiceAttempts.filter(a => a.userId === activeUserId && a.practiceDayId === currentPracticeDayId && Number(a.actualElapsedSeconds) > 0);
+    const getBestStepBpm = (stepNum, isPracticed) => {
+      const stepAttempts = currentSessionAttempts.filter(a => Number(a.stepNumber) === stepNum && Number(a.bpm) > 0);
+      if (stepAttempts.length > 0) {
+        return Math.max(...stepAttempts.map(a => Number(a.bpm)));
+      }
+      return isPracticed ? getStepEffectiveBpm(stepNum) : null;
+    };
+
     const newSession = {
       id: newSessionId,
       userId: activeUserId,
@@ -2633,9 +2642,9 @@ export default function App() {
       step2Elapsed: s2Elapsed,
       step3Elapsed: s3Elapsed,
       step4Elapsed: s4Elapsed,
-      comfortBpm: isStep1Practiced ? getStepEffectiveBpm(1) : null,
-      edgeBpm: isStep2Practiced ? getStepEffectiveBpm(2) : null,
-      burstBpm: isStep3Practiced ? getStepEffectiveBpm(3) : null,
+      comfortBpm: getBestStepBpm(1, isStep1Practiced),
+      edgeBpm: getBestStepBpm(2, isStep2Practiced),
+      burstBpm: getBestStepBpm(3, isStep3Practiced),
       targetBpm: logFormData.targetBpm === '' ? null : Number(logFormData.targetBpm),
       notes: [logFormData.pointsOfFocusTomorrow, logFormData.additionalNotes].filter(Boolean).join(' | '),
       step1Focus: practiceSession.step1.focusAreas,
@@ -2643,9 +2652,9 @@ export default function App() {
       step3Focus: practiceSession.step3.focusAreas,
       step4Focus: practiceSession.step4.focusAreas,
       completedSteps: 4,
-      videoUrl: practiceSession.step4.recordedVideoBlobUrl || recordedVideoUrl || null
+      videoUrl: practiceSession.step4.recordedVideoBlobUrl || recordedVideoUrl || null,
+      practiceAttempts: currentSessionAttempts
     };
-    newSession.practiceAttempts = practiceAttempts.filter(a => a.userId === activeUserId && a.practiceDayId === currentPracticeDayId && Number(a.actualElapsedSeconds) > 0);
 
     setHistorySessions(prev => [newSession, ...prev]);
     setPracticeAttempts(prev => {
@@ -5162,15 +5171,27 @@ export default function App() {
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-[#101016] p-2.5 rounded-xl border border-white/5 mb-2.5 text-center">
                                   <div>
                                     <span className="text-[9px] text-[#92929F] uppercase font-semibold">Comfort</span>
-                                    <div className="text-xs font-bold font-mono text-[#10B981]">{hasLoggedStepPractice(session, 1) && session.comfortBpm != null ? `${session.comfortBpm} BPM` : <span className="text-[#666675]">—</span>}</div>
+                                    <div className="text-xs font-bold font-mono text-[#10B981]">{(() => {
+                                      const s1Attempts = Array.isArray(session.practiceAttempts) ? session.practiceAttempts.filter(a => Number(a.stepNumber) === 1 && Number(a.bpm) > 0) : [];
+                                      const val = s1Attempts.length > 0 ? Math.max(...s1Attempts.map(a => Number(a.bpm))) : session.comfortBpm;
+                                      return hasLoggedStepPractice(session, 1) && val != null ? `${val} BPM` : <span className="text-[#666675]">—</span>;
+                                    })()}</div>
                                   </div>
                                   <div>
                                     <span className="text-[9px] text-[#92929F] uppercase font-semibold">Clean Edge</span>
-                                    <div className="text-xs font-bold font-mono text-[#3B82F6]">{hasLoggedStepPractice(session, 2) && session.edgeBpm != null ? `${session.edgeBpm} BPM` : <span className="text-[#666675]">—</span>}</div>
+                                    <div className="text-xs font-bold font-mono text-[#3B82F6]">{(() => {
+                                      const s2Attempts = Array.isArray(session.practiceAttempts) ? session.practiceAttempts.filter(a => Number(a.stepNumber) === 2 && Number(a.bpm) > 0) : [];
+                                      const val = s2Attempts.length > 0 ? Math.max(...s2Attempts.map(a => Number(a.bpm))) : session.edgeBpm;
+                                      return hasLoggedStepPractice(session, 2) && val != null ? `${val} BPM` : <span className="text-[#666675]">—</span>;
+                                    })()}</div>
                                   </div>
                                   <div>
                                     <span className="text-[9px] text-[#92929F] uppercase font-semibold">Speed Bursts</span>
-                                    <div className="text-xs font-bold font-mono text-[#EF4444]">{hasLoggedStepPractice(session, 3) && session.burstBpm != null ? `${session.burstBpm} BPM` : <span className="text-[#666675]">—</span>}</div>
+                                    <div className="text-xs font-bold font-mono text-[#EF4444]">{(() => {
+                                      const s3Attempts = Array.isArray(session.practiceAttempts) ? session.practiceAttempts.filter(a => Number(a.stepNumber) === 3 && Number(a.bpm) > 0) : [];
+                                      const val = s3Attempts.length > 0 ? Math.max(...s3Attempts.map(a => Number(a.bpm))) : session.burstBpm;
+                                      return hasLoggedStepPractice(session, 3) && val != null ? `${val} BPM` : <span className="text-[#666675]">—</span>;
+                                    })()}</div>
                                   </div>
                                   <div>
                                     <span className="text-[9px] text-[#92929F] uppercase font-semibold">Next Target</span>
