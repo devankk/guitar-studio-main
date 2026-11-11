@@ -1138,6 +1138,39 @@ export default function App() {
     }
   }, []);
 
+  // Sync Profiles Registry from Firebase in real-time (Ensures all profiles exist on all devices)
+  useEffect(() => {
+    let unsubscribeProfiles = null;
+    try {
+      const profilesRef = ref(db, 'profiles');
+      unsubscribeProfiles = onValue(profilesRef, (snapshot) => {
+        const cloudProfiles = snapshot.val();
+        if (cloudProfiles && typeof cloudProfiles === 'object') {
+          setUserProfiles(prev => {
+            const merged = {
+              ...prev,
+              ...cloudProfiles,
+              user1: {
+                ...cloudProfiles.user1,
+                pin: cloudProfiles.user1?.pin || '7779',
+                name: cloudProfiles.user1?.name || 'Guitarist 1 (Admin)',
+                isAdmin: true
+              }
+            };
+            try {
+              localStorage.setItem('gps_user_profiles', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      }, (err) => console.warn('Profiles live sync listener notice:', err));
+    } catch {}
+
+    return () => {
+      if (typeof unsubscribeProfiles === 'function') unsubscribeProfiles();
+    };
+  }, []);
+
   // Realtime Firebase live synchronization listener
   useEffect(() => {
     if (!isAuthenticated || !activeUserId) return undefined;
@@ -1254,11 +1287,15 @@ export default function App() {
     audioEngine.playUiSound('step');
   };
 
-  // Save current profile metadata whenever changed
+  // Save current profile metadata whenever changed and sync profiles registry to Firebase
   const saveUserProfiles = (updated) => {
     setUserProfiles(updated);
     try {
       localStorage.setItem('gps_user_profiles', JSON.stringify(updated));
+    } catch {}
+    try {
+      const profilesRef = ref(db, 'profiles');
+      set(profilesRef, updated).catch(err => console.warn('Profiles cloud sync notice:', err));
     } catch {}
   };
 
